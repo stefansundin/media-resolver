@@ -1,9 +1,11 @@
-use std::{env, net, process};
-
-use axum::{extract::Path, http::StatusCode, response::IntoResponse, routing::get, Json, Router};
+use actix_web::{get, middleware, web, App, HttpResponse, HttpServer};
+use env_logger;
+use http::StatusCode;
 use lazy_static::lazy_static;
+use log;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::{env, process};
 
 const TWITCH_GRAPHQL_URL: &str = "https://gql.twitch.tv/gql";
 
@@ -24,13 +26,13 @@ struct VideoResponseData {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct StreamPlaybackAccessTokenData {
-  stream_playback_access_token: PlaybackAccessToken,
+  stream_playback_access_token: Option<PlaybackAccessToken>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct VideoPlaybackAccessTokenData {
-  video_playback_access_token: PlaybackAccessToken,
+  video_playback_access_token: Option<PlaybackAccessToken>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -39,33 +41,31 @@ struct PlaybackAccessToken {
   value: String,
 }
 
-#[tokio::main]
-async fn main() {
-  tracing_subscriber::fmt::init();
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+  env_logger::init_from_env(env_logger::Env::default().default_filter_or("info"));
 
   if TWITCH_CLIENT_ID.eq("") {
-    tracing::error!("TWITCH_CLIENT_ID is not defined!");
+    log::error!("TWITCH_CLIENT_ID is not defined!");
     process::exit(1);
   }
 
-  let app = Router::new()
-    .route(
-      "/api/channels/:channel_name/access_token",
-      get(channel_access_token),
-    )
-    .route("/api/vods/:vod_id/access_token", get(vod_access_token));
-
-  let addr = net::SocketAddr::from(([0, 0, 0, 0], 8080));
-  tracing::info!("listening on {}", addr);
-  axum::Server::bind(&addr)
-    .serve(app.into_make_service())
-    .await
-    .unwrap();
+  HttpServer::new(|| {
+    App::new()
+      .service(channel_access_token)
+      .service(vod_access_token)
+      .wrap(middleware::Logger::default())
+  })
+  .bind(("0.0.0.0", 8080))?
+  .run()
+  .await
 }
 
-async fn channel_access_token(Path(channel_name): Path<String>) -> impl IntoResponse {
+#[get("/api/channels/{channel_name}/access_token")]
+async fn channel_access_token(path: web::Path<String>) -> HttpResponse {
+  let channel_name = path.into_inner();
   if cfg!(debug_assertions) {
-    tracing::info!("channel_name: {}", channel_name);
+    log::info!("channel_name: {}", channel_name);
   }
 
   let request_data = json!({
@@ -91,33 +91,42 @@ async fn channel_access_token(Path(channel_name): Path<String>) -> impl IntoResp
   let response_text = response.text().await.expect("read response data");
 
   if response_status != (StatusCode::OK) {
-    tracing::error!("bad response: {} - {:?}", response_status, response_text);
-    return (
-      StatusCode::INTERNAL_SERVER_ERROR,
-      Json(json!({
-        "error": "received non-200 response from Twitch",
-      })),
-    );
+    log::error!("bad response: {} - {:?}", response_status, response_text);
+    return HttpResponse::InternalServerError().json(json!({
+      "error": "received non-200 response from Twitch",
+    }));
   }
 
   let response_data: StreamResponseData = serde_json::from_str(response_text.as_str()).unwrap();
 
   if cfg!(debug_assertions) {
-    tracing::info!("response_data: {:?}", response_data);
+    log::info!("response_data: {:?}", response_data);
   }
 
-  return (
-    StatusCode::OK,
-    Json(json!({
-      "sig": response_data.data.stream_playback_access_token.signature,
-      "token": response_data.data.stream_playback_access_token.value,
-    })),
-  );
+  if response_data.data.stream_playback_access_token.is_none() {
+    return HttpResponse::InternalServerError().json(json!({
+      "error": "streamPlaybackAccessToken is null",
+    }));
+  }
+
+  let access_token = response_data.data.stream_playback_access_token.unwrap();
+  return HttpResponse::Ok().json(json!({
+    "sig": access_token.signature,
+    "token": access_token.value,
+  }));
 }
 
-async fn vod_access_token(Path(vod_id): Path<String>) -> impl IntoResponse {
+#[get("/api/vods/{vod_id}/access_token")]
+async fn vod_access_token(path: web::Path<String>) -> HttpResponse {
+  let vod_id = path.into_inner();
   if cfg!(debug_assertions) {
-    tracing::info!("vod_id: {}", vod_id);
+    log::info!("vod_id: {}", vod_id);
+  }
+
+  if !vod_id.chars().all(|c| c.is_ascii_digit()) {
+    return HttpResponse::InternalServerError().json(json!({
+      "error": "vod_id is not numeric",
+    }));
   }
 
   let q = json!({
@@ -144,26 +153,27 @@ async fn vod_access_token(Path(vod_id): Path<String>) -> impl IntoResponse {
   let response_text = response.text().await.expect("read response data");
 
   if response_status != (StatusCode::OK) {
-    tracing::error!("bad response: {} - {:?}", response_status, response_text);
-    return (
-      StatusCode::INTERNAL_SERVER_ERROR,
-      Json(json!({
-        "error": "received non-200 response from Twitch",
-      })),
-    );
+    log::error!("bad response: {} - {:?}", response_status, response_text);
+    return HttpResponse::InternalServerError().json(json!({
+      "error": "received non-200 response from Twitch",
+    }));
   }
 
   let response_data: VideoResponseData = serde_json::from_str(response_text.as_str()).unwrap();
 
   if cfg!(debug_assertions) {
-    tracing::info!("response_data: {:?}", response_data);
+    log::info!("response_data: {:?}", response_data);
   }
 
-  return (
-    StatusCode::OK,
-    Json(json!({
-      "sig": response_data.data.video_playback_access_token.signature,
-      "token": response_data.data.video_playback_access_token.value,
-    })),
-  );
+  if response_data.data.video_playback_access_token.is_none() {
+    return HttpResponse::InternalServerError().json(json!({
+      "error": "videoPlaybackAccessToken is null",
+    }));
+  }
+
+  let access_token = response_data.data.video_playback_access_token.unwrap();
+  return HttpResponse::Ok().json(json!({
+    "sig": access_token.signature,
+    "token": access_token.value,
+  }));
 }
