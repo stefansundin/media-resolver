@@ -54,7 +54,13 @@ async fn main() -> std::io::Result<()> {
     App::new()
       .service(channel_access_token)
       .service(vod_access_token)
-      .wrap(middleware::Logger::default())
+      .wrap(middleware::Logger::new(
+        env::var("ACCESS_LOG_FORMAT")
+          .unwrap_or(String::from(
+            r#"%{r}a "%r" %s %b "%{Referer}i" "%{User-Agent}i" %T"#,
+          ))
+          .as_str(),
+      ))
   })
   .bind(("0.0.0.0", 8080))?
   .run()
