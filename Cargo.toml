@@ -1,5 +1,5 @@
 [package]
-name = "vlc-playlist-parser-proxy"
+name = "media-resolver"
 version = "0.1.0"
 edition = "2021"
 
@@ -16,5 +16,5 @@ serde_json = "1.0.91"
 urlencoding = "2.1.2"
 
 [[bin]]
-name = "vlc-playlist-parser-proxy"
+name = "media-resolver"
 path = "src/main.rs"

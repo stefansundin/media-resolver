@@ -19,7 +19,7 @@ FROM debian:bullseye-slim
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y ca-certificates
 
-COPY --from=builder /src/target/release/vlc-playlist-parser-proxy /
+COPY --from=builder /src/target/release/media-resolver /
 
 EXPOSE 8080
-ENTRYPOINT [ "/vlc-playlist-parser-proxy" ]
+ENTRYPOINT [ "/media-resolver" ]
