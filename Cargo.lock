@@ -1483,6 +1483,7 @@ dependencies = [
  "http",
  "lazy_static",
  "log",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",
