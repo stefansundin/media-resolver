@@ -7,6 +7,16 @@ query(
   clip(
     slug: $slug
   ) {
+    title
+    createdAt
+    durationSeconds
+    language
+    game {
+      displayName
+    }
+    broadcaster {
+      displayName
+    }
     playbackAccessToken(
       params: {
         disableHTTPS: false

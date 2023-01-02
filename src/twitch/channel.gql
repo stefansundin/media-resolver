@@ -1,0 +1,32 @@
+query(
+  $channelName: String!
+  $platform: String!
+  $playerBackend: String
+  $playerType: String!
+) {
+  channel(
+    name: $channelName
+  ) {
+    displayName
+    stream {
+      title
+      createdAt
+      language
+      game {
+        displayName
+      }
+      playbackAccessToken(
+        params: {
+          disableHTTPS: false
+          hasAdblock: false
+          platform: $platform
+          playerBackend: $playerBackend
+          playerType: $playerType
+        }
+      ) {
+        signature
+        value
+      }
+    }
+  }
+}

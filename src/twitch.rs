@@ -2,10 +2,12 @@ use http::StatusCode;
 use lazy_static::lazy_static;
 use log;
 use regex::Regex;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::json;
 use std::{env, result::Result};
 use urlencoding;
+
+use crate::PlaylistItem;
 
 const GRAPHQL_URL: &str = "https://gql.twitch.tv/gql";
 
@@ -36,62 +38,103 @@ lazy_static! {
 }
 
 // Channel
-#[derive(Debug, Serialize, Deserialize)]
-struct StreamResponseData {
-  data: StreamPlaybackAccessTokenData,
+#[derive(Debug, Deserialize)]
+struct ChannelResponseData {
+  data: ChannelData,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
+struct ChannelData {
+  channel: Option<Channel>,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct StreamPlaybackAccessTokenData {
-  stream_playback_access_token: Option<PlaybackAccessToken>,
+struct Channel {
+  display_name: String,
+  stream: Option<Stream>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Stream {
+  title: String,
+  created_at: String,
+  language: String,
+  game: Option<Game>,
+  playback_access_token: PlaybackAccessToken,
 }
 
 // Video
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 struct VideoResponseData {
-  data: VideoPlaybackAccessTokenData,
+  data: VideoData,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
+struct VideoData {
+  video: Option<Video>,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct VideoPlaybackAccessTokenData {
-  video_playback_access_token: Option<PlaybackAccessToken>,
+struct Video {
+  title: String,
+  description: Option<String>,
+  owner: User,
+  game: Option<Game>,
+  recorded_at: String,
+  duration: String,
+  language: String,
+  playback_access_token: PlaybackAccessToken,
 }
 
 // Clip
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 struct ClipResponseData {
   data: ClipData,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ClipData {
-  clip: Clip,
+  clip: Option<Clip>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PlaybackAccessTokenData {
-  playback_access_token: Option<PlaybackAccessToken>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Clip {
-  playback_access_token: Option<PlaybackAccessToken>,
+  title: String,
+  broadcaster: User,
+  game: Option<Game>,
+  created_at: String,
+  duration_seconds: usize,
+  language: String,
+  playback_access_token: PlaybackAccessToken,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
+struct ClipTokenValue {
+  clip_uri: String,
+}
+
+// Shared
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Game {
+  display_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct User {
+  display_name: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct PlaybackAccessToken {
   signature: String,
   value: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct ClipTokenValue {
-  clip_uri: String,
 }
 
 pub fn probe(url: &str) -> bool {
@@ -136,7 +179,7 @@ pub fn probe(url: &str) -> bool {
   return false;
 }
 
-pub async fn resolve(url: &str) -> Result<String, &'static str> {
+pub async fn resolve(url: &str) -> Result<Vec<PlaylistItem>, &'static str> {
   for re in CLIP_URL_PATTERNS.iter() {
     if cfg!(debug_assertions) {
       log::info!("re: {:?}", re);
@@ -152,7 +195,7 @@ pub async fn resolve(url: &str) -> Result<String, &'static str> {
     if cfg!(debug_assertions) {
       log::info!("slug: {}", slug);
     }
-    return clip_url(slug).await;
+    return resolve_clip(slug).await;
   }
 
   for re in VIDEO_URL_PATTERNS.iter() {
@@ -170,7 +213,7 @@ pub async fn resolve(url: &str) -> Result<String, &'static str> {
     if cfg!(debug_assertions) {
       log::info!("video_id: {}", video_id);
     }
-    return video_url(video_id).await;
+    return resolve_video(video_id).await;
   }
 
   for re in CHANNEL_URL_PATTERNS.iter() {
@@ -188,23 +231,25 @@ pub async fn resolve(url: &str) -> Result<String, &'static str> {
     if cfg!(debug_assertions) {
       log::info!("channel_name: {}", channel_name);
     }
-    return channel_url(channel_name).await;
+    return resolve_channel(channel_name).await;
   }
 
   return Err("not found");
 }
 
-async fn channel_url(channel_name: &str) -> Result<String, &'static str> {
+async fn resolve_channel(channel_name: &str) -> Result<Vec<PlaylistItem>, &'static str> {
+  let channel_name_lowercase = channel_name.to_lowercase();
+
   // https://www.twitch.tv/directory/game/Perfect%20Dark
   // https://www.twitch.tv/recaps/annual
-  if channel_name == "directory" || channel_name == "recaps" {
+  if channel_name_lowercase == "directory" || channel_name_lowercase == "recaps" {
     return Err("unsupported channel name");
   }
 
   let request_data = json!({
-    "query": include_str!("streamPlaybackAccessToken.gql"),
+    "query": include_str!("twitch/channel.gql"),
     "variables": {
-      "channelName": channel_name,
+      "channelName": channel_name_lowercase,
       "platform": "web",
       "playerType": "site",
     },
@@ -228,28 +273,39 @@ async fn channel_url(channel_name: &str) -> Result<String, &'static str> {
     return Err("received non-200 response from Twitch");
   }
 
-  let response_data: StreamResponseData = serde_json::from_str(response_text.as_str()).unwrap();
-
+  let response_data: ChannelResponseData = serde_json::from_str(response_text.as_str()).unwrap();
   if cfg!(debug_assertions) {
     log::info!("response_data: {:?}", response_data);
   }
-
-  if response_data.data.stream_playback_access_token.is_none() {
-    return Err("streamPlaybackAccessToken is null");
+  if response_data.data.channel.is_none() {
+    return Err("channel does not exist");
   }
+  let channel = response_data.data.channel.unwrap();
+  if channel.stream.is_none() {
+    return Err("channel is not live");
+  }
+  let stream = channel.stream.unwrap();
 
-  let access_token = response_data.data.stream_playback_access_token.unwrap();
-  return Ok(format!(
-    "https://usher.ttvnw.net/api/channel/hls/{}.m3u8?allow_source=true&allow_audio_only=true&sig={}&token={}",
-    channel_name,
-    urlencoding::encode(access_token.signature.as_str()),
-    urlencoding::encode(access_token.value.as_str())
-  ));
+  return Ok(vec![PlaylistItem {
+    path: format!(
+      "https://usher.ttvnw.net/api/channel/hls/{}.m3u8?allow_source=true&allow_audio_only=true&sig={}&token={}",
+      channel_name_lowercase,
+      urlencoding::encode(stream.playback_access_token.signature.as_str()),
+      urlencoding::encode(stream.playback_access_token.value.as_str())
+    ),
+    name: stream.title,
+    description: None,
+    artist: Some(channel.display_name),
+    genre: stream.game.and_then(|game| Some(game.display_name)),
+    date: Some(stream.created_at.replace("T", " ").replace("Z", "")),
+    duration: None,
+    language: Some(stream.language),
+  }]);
 }
 
-async fn video_url(video_id: &str) -> Result<String, &'static str> {
+async fn resolve_video(video_id: &str) -> Result<Vec<PlaylistItem>, &'static str> {
   let q = json!({
-    "query": include_str!("videoPlaybackAccessToken.gql"),
+    "query": include_str!("twitch/video.gql"),
     "variables": {
       "vodID": video_id,
       "platform": "web",
@@ -277,28 +333,34 @@ async fn video_url(video_id: &str) -> Result<String, &'static str> {
   }
 
   let response_data: VideoResponseData = serde_json::from_str(response_text.as_str()).unwrap();
-
   if cfg!(debug_assertions) {
     log::info!("response_data: {:?}", response_data);
   }
-
-  if response_data.data.video_playback_access_token.is_none() {
-    return Err("videoPlaybackAccessToken is null");
+  if response_data.data.video.is_none() {
+    return Err("video is null");
   }
+  let video = response_data.data.video.unwrap();
 
-  let access_token = response_data.data.video_playback_access_token.unwrap();
-
-  return Ok(format!(
-    "https://usher.ttvnw.net/vod/{}.m3u8?allow_source=true&allow_audio_only=true&sig={}&token={}",
-    video_id,
-    urlencoding::encode(access_token.signature.as_str()),
-    urlencoding::encode(access_token.value.as_str())
-  ));
+  return Ok(vec![PlaylistItem {
+    path: format!(
+      "https://usher.ttvnw.net/vod/{}.m3u8?allow_source=true&allow_audio_only=true&sig={}&token={}",
+      video_id,
+      urlencoding::encode(video.playback_access_token.signature.as_str()),
+      urlencoding::encode(video.playback_access_token.value.as_str())
+    ),
+    name: video.title,
+    description: video.description,
+    artist: Some(video.owner.display_name),
+    genre: video.game.and_then(|game| Some(game.display_name)),
+    date: Some(video.recorded_at.replace("T", " ").replace("Z", "")),
+    duration: Some(parse_duration(video.duration.as_str())),
+    language: Some(video.language),
+  }]);
 }
 
-async fn clip_url(slug: &str) -> Result<String, &'static str> {
+async fn resolve_clip(slug: &str) -> Result<Vec<PlaylistItem>, &'static str> {
   let q = json!({
-    "query": include_str!("clip.gql"),
+    "query": include_str!("twitch/clip.gql"),
     "variables": {
       "slug": slug,
       "platform": "web",
@@ -326,25 +388,87 @@ async fn clip_url(slug: &str) -> Result<String, &'static str> {
   }
 
   let response_data: ClipResponseData = serde_json::from_str(response_text.as_str()).unwrap();
-
   if cfg!(debug_assertions) {
     log::info!("response_data: {:?}", response_data);
   }
-
-  if response_data.data.clip.playback_access_token.is_none() {
-    return Err("playbackAccessToken is null");
+  if response_data.data.clip.is_none() {
+    return Err("clip is null");
   }
-
-  let access_token = response_data.data.clip.playback_access_token.unwrap();
-  let clip_token_value: ClipTokenValue = serde_json::from_str(access_token.value.as_str()).unwrap();
+  let clip = response_data.data.clip.unwrap();
+  let token_value: ClipTokenValue =
+    serde_json::from_str(clip.playback_access_token.value.as_str()).unwrap();
   if cfg!(debug_assertions) {
-    log::info!("clip_token_value: {:?}", clip_token_value);
+    log::info!("token_value: {:?}", token_value);
   }
 
-  return Ok(format!(
-    "{}?sig={}&token={}",
-    clip_token_value.clip_uri,
-    urlencoding::encode(access_token.signature.as_str()),
-    urlencoding::encode(access_token.value.as_str())
-  ));
+  return Ok(vec![PlaylistItem {
+    path: format!(
+      "{}?allow_source=true&allow_audio_only=true&sig={}&token={}",
+      token_value.clip_uri,
+      urlencoding::encode(clip.playback_access_token.signature.as_str()),
+      urlencoding::encode(clip.playback_access_token.value.as_str())
+    ),
+    name: clip.title,
+    description: None,
+    artist: Some(clip.broadcaster.display_name),
+    genre: clip.game.and_then(|game| Some(game.display_name)),
+    date: Some(clip.created_at.replace("T", " ").replace("Z", "")),
+    duration: Some(clip.duration_seconds),
+    language: Some(clip.language),
+  }]);
+}
+
+fn parse_duration(s: &str) -> usize {
+  let mut seconds = 0;
+  let mut numbers = String::with_capacity(2);
+  for c in s.chars() {
+    if c.is_ascii_digit() {
+      numbers.push(c);
+    } else if c == 'h' || c == 'm' || c == 's' {
+      match numbers.parse::<usize>() {
+        Ok(n) => {
+          if n != 0 {
+            if c == 'h' {
+              seconds += 3600 * n;
+            } else if c == 'm' {
+              seconds += 60 * n;
+            } else if c == 's' {
+              seconds += n;
+            }
+          }
+        }
+        Err(e) => {
+          log::error!("parse_duration({}) error: {}", s, e);
+        }
+      }
+      numbers.clear();
+    } else {
+      log::error!("parse_duration({}) unexpected character: {}", s, c);
+    }
+  }
+  return seconds;
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn test() {
+    // Durations taken from Twitch:
+    assert_eq!(parse_duration("32h47m50s"), 118070);
+    assert_eq!(parse_duration("1h20m0s"), 4800);
+    assert_eq!(parse_duration("55m31s"), 3331);
+    assert_eq!(parse_duration("2m53s"), 173);
+    assert_eq!(parse_duration("58s"), 58);
+
+    // Hypothetical durations that shouldn't error:
+    assert_eq!(parse_duration("1h"), 3600);
+    assert_eq!(parse_duration("1m"), 60);
+    assert_eq!(parse_duration("0s"), 0);
+
+    // Not seen on Twitch so they don't work properly:
+    assert_eq!(parse_duration("1d8h47m50s"), 67670);
+    assert_eq!(parse_duration("1y10d"), 0);
+  }
 }

@@ -1,0 +1,34 @@
+query(
+  $vodID: ID!
+  $platform: String!
+  $playerBackend: String
+  $playerType: String!
+) {
+  video(
+    id: $vodID
+  ) {
+    title
+    description
+    recordedAt
+    duration
+    language
+    owner {
+      displayName
+    }
+    game {
+      displayName
+    }
+    playbackAccessToken(
+      params: {
+        disableHTTPS: false
+        hasAdblock: false
+        platform: $platform
+        playerBackend: $playerBackend
+        playerType: $playerType
+      }
+    ) {
+      signature
+      value
+    }
+  }
+}
