@@ -1,0 +1,23 @@
+query(
+  $slug: ID!
+  $platform: String!
+  $playerBackend: String
+  $playerType: String!
+) {
+  clip(
+    slug: $slug
+  ) {
+    playbackAccessToken(
+      params: {
+        disableHTTPS: false
+        hasAdblock: false
+        platform: $platform
+        playerBackend: $playerBackend
+        playerType: $playerType
+      }
+    ) {
+      signature
+      value
+    }
+  }
+}
