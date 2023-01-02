@@ -11,6 +11,7 @@ use std::env;
 pub struct ResolveRequest {
   url: String,
   output: Option<String>,
+  // v: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -51,6 +52,13 @@ async fn resolve(web::Query(q): web::Query<ResolveRequest>) -> HttpResponse {
   let url = q.url.as_str();
   let output_string = q.output.unwrap_or_default();
   let output = output_string.as_str();
+
+  // Potential future hard upgrade error:
+  // if q.v.is_some() && q.v.unwrap() == "1" {
+  //   return HttpResponse::Ok().json(json!({
+  //     "error": "Please upgrade your twitch.lua file!",
+  //   }));
+  // }
 
   if twitch::probe(url) {
     let playlist = match twitch::resolve(url).await {
