@@ -37,6 +37,13 @@ lazy_static! {
   ];
 }
 
+#[derive(Debug)]
+pub enum TwitchMatch {
+  Channel(String),
+  Video(String),
+  Clip(String),
+}
+
 // Channel
 #[derive(Debug, Deserialize)]
 struct ChannelResponseData {
@@ -96,7 +103,6 @@ struct ClipResponseData {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct ClipData {
   clip: Option<Clip>,
 }
@@ -137,10 +143,9 @@ struct PlaybackAccessToken {
   value: String,
 }
 
-pub fn probe(url: &str) -> bool {
-  // TODO: Return information about the match to avoid the need to do the matching again in the resolve function
+pub fn probe(url: &str) -> Option<TwitchMatch> {
   if CLIENT_ID.eq("") {
-    return false;
+    return None;
   }
 
   for re in CLIP_URL_PATTERNS.iter() {
@@ -148,10 +153,11 @@ pub fn probe(url: &str) -> bool {
       log::info!("re: {:?}", re);
     }
     let ret = re.captures(url);
-    if ret.is_none() {
-      continue;
+    if ret.is_some() {
+      return Some(TwitchMatch::Clip(
+        ret.unwrap().get(1).unwrap().as_str().to_string(),
+      ));
     }
-    return true;
   }
 
   for re in VIDEO_URL_PATTERNS.iter() {
@@ -159,10 +165,11 @@ pub fn probe(url: &str) -> bool {
       log::info!("re: {:?}", re);
     }
     let ret = re.captures(url);
-    if ret.is_none() {
-      continue;
+    if ret.is_some() {
+      return Some(TwitchMatch::Video(
+        ret.unwrap().get(1).unwrap().as_str().to_string(),
+      ));
     }
-    return true;
   }
 
   for re in CHANNEL_URL_PATTERNS.iter() {
@@ -170,86 +177,35 @@ pub fn probe(url: &str) -> bool {
       log::info!("re: {:?}", re);
     }
     let ret = re.captures(url);
-    if ret.is_none() {
-      continue;
+    if ret.is_some() {
+      return Some(TwitchMatch::Channel(
+        ret.unwrap().get(1).unwrap().as_str().to_lowercase(),
+      ));
     }
-    return true;
   }
 
-  return false;
+  return None;
 }
 
-pub async fn resolve(url: &str) -> Result<Vec<PlaylistItem>, &'static str> {
-  for re in CLIP_URL_PATTERNS.iter() {
-    if cfg!(debug_assertions) {
-      log::info!("re: {:?}", re);
-    }
-    let ret = re.captures(url);
-    if ret.is_none() {
-      continue;
-    }
-    if cfg!(debug_assertions) {
-      log::info!("ret: {:?}", ret);
-    }
-    let slug = ret.unwrap().get(1).unwrap().as_str();
-    if cfg!(debug_assertions) {
-      log::info!("slug: {}", slug);
-    }
-    return resolve_clip(slug).await;
+pub async fn resolve(m: TwitchMatch) -> Result<Vec<PlaylistItem>, &'static str> {
+  match m {
+    TwitchMatch::Channel(channel_name) => resolve_channel(channel_name).await,
+    TwitchMatch::Video(video_id) => resolve_video(video_id).await,
+    TwitchMatch::Clip(slug) => resolve_clip(slug).await,
   }
-
-  for re in VIDEO_URL_PATTERNS.iter() {
-    if cfg!(debug_assertions) {
-      log::info!("re: {:?}", re);
-    }
-    let ret = re.captures(url);
-    if ret.is_none() {
-      continue;
-    }
-    if cfg!(debug_assertions) {
-      log::info!("ret: {:?}", ret);
-    }
-    let video_id = ret.unwrap().get(1).unwrap().as_str();
-    if cfg!(debug_assertions) {
-      log::info!("video_id: {}", video_id);
-    }
-    return resolve_video(video_id).await;
-  }
-
-  for re in CHANNEL_URL_PATTERNS.iter() {
-    if cfg!(debug_assertions) {
-      log::info!("re: {:?}", re);
-    }
-    let ret = re.captures(url);
-    if ret.is_none() {
-      continue;
-    }
-    if cfg!(debug_assertions) {
-      log::info!("ret: {:?}", ret);
-    }
-    let channel_name = ret.unwrap().get(1).unwrap().as_str();
-    if cfg!(debug_assertions) {
-      log::info!("channel_name: {}", channel_name);
-    }
-    return resolve_channel(channel_name).await;
-  }
-
-  return Err("not found");
 }
 
-async fn resolve_channel(channel_name: &str) -> Result<Vec<PlaylistItem>, &'static str> {
-  let channel_name_lowercase = channel_name.to_lowercase();
-
+async fn resolve_channel(channel_name: String) -> Result<Vec<PlaylistItem>, &'static str> {
   // https://www.twitch.tv/directory/game/Perfect%20Dark
   // https://www.twitch.tv/recaps/annual
-  if channel_name_lowercase == "directory" || channel_name_lowercase == "recaps" {
+  if channel_name == "directory" || channel_name == "recaps" {
     return Err("unsupported channel name");
   }
 
   let request_data = json!({
     "query": include_str!("twitch/channel.gql"),
     "variables": {
-      "channelName": channel_name_lowercase,
+      "channelName": channel_name,
       "platform": "web",
       "playerType": "site",
     },
@@ -289,7 +245,7 @@ async fn resolve_channel(channel_name: &str) -> Result<Vec<PlaylistItem>, &'stat
   return Ok(vec![PlaylistItem {
     path: format!(
       "https://usher.ttvnw.net/api/channel/hls/{}.m3u8?allow_source=true&allow_audio_only=true&sig={}&token={}",
-      channel_name_lowercase,
+      channel_name,
       urlencoding::encode(stream.playback_access_token.signature.as_str()),
       urlencoding::encode(stream.playback_access_token.value.as_str())
     ),
@@ -303,7 +259,7 @@ async fn resolve_channel(channel_name: &str) -> Result<Vec<PlaylistItem>, &'stat
   }]);
 }
 
-async fn resolve_video(video_id: &str) -> Result<Vec<PlaylistItem>, &'static str> {
+async fn resolve_video(video_id: String) -> Result<Vec<PlaylistItem>, &'static str> {
   let q = json!({
     "query": include_str!("twitch/video.gql"),
     "variables": {
@@ -358,7 +314,7 @@ async fn resolve_video(video_id: &str) -> Result<Vec<PlaylistItem>, &'static str
   }]);
 }
 
-async fn resolve_clip(slug: &str) -> Result<Vec<PlaylistItem>, &'static str> {
+async fn resolve_clip(slug: String) -> Result<Vec<PlaylistItem>, &'static str> {
   let q = json!({
     "query": include_str!("twitch/clip.gql"),
     "variables": {

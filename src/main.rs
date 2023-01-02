@@ -60,8 +60,12 @@ async fn resolve(web::Query(q): web::Query<ResolveRequest>) -> HttpResponse {
   //   }));
   // }
 
-  if twitch::probe(url) {
-    let playlist = match twitch::resolve(url).await {
+  let m = twitch::probe(url);
+  if m.is_some() {
+    if cfg!(debug_assertions) {
+      log::info!("m: {:?}", m);
+    }
+    let playlist = match twitch::resolve(m.unwrap()).await {
       Ok(v) => v,
       Err(e) => {
         log::error!("error: {}", e);
@@ -90,5 +94,6 @@ async fn resolve(web::Query(q): web::Query<ResolveRequest>) -> HttpResponse {
       return HttpResponse::NotFound().finish();
     }
   }
+
   return HttpResponse::NotFound().finish();
 }
