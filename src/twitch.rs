@@ -58,7 +58,7 @@ struct ChannelData {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Channel {
-  display_name: String,
+  display_name: Option<String>,
   stream: Option<Stream>,
 }
 
@@ -260,7 +260,7 @@ async fn resolve_channel(channel_name: String) -> Result<Vec<PlaylistItem>, &'st
     ),
     name: stream.title,
     description: None,
-    artist: Some(channel.display_name),
+    artist: channel.display_name,
     genre: stream.game.and_then(|game| Some(game.display_name)),
     date: Some(stream.created_at.replace("T", " ").replace("Z", "")),
     duration: None,
