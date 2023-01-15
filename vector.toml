@@ -1,0 +1,39 @@
+# Based on https://github.com/superfly/fly-log-shipper/tree/main/vector-configs
+# Set the variables below and enable by setting LOG_EXPORT_ENABLED=true
+
+[api]
+enabled = true
+address = "0.0.0.0:8686"
+
+[sources.nats]
+type = "nats"
+url = "nats://[fdaa::3]:4223"
+queue = "${LOG_EXPORT_QUEUE-}"
+subject = "${LOG_EXPORT_SUBJECT-logs.>}"
+auth.strategy = "user_password"
+auth.user_password.user = "${LOG_EXPORT_ORG-personal}"
+auth.user_password.password = "${LOG_EXPORT_ACCESS_TOKEN?}"
+connection_name = "Fly logs stream"
+
+[transforms.log_json]
+type = "remap"
+inputs = ["nats"]
+source = '''
+. = parse_json!(.message)
+'''
+
+# https://vector.dev/docs/reference/configuration/sinks/aws_s3/
+[sinks.aws_s3]
+type = "aws_s3"
+auth.access_key_id = "${LOG_EXPORT_AWS_ACCESS_KEY_ID?}"
+auth.secret_access_key = "${LOG_EXPORT_AWS_SECRET_ACCESS_KEY?}"
+region = "${LOG_EXPORT_AWS_REGION?}"
+bucket = "${LOG_EXPORT_AWS_S3_BUCKET?}"
+# endpoint = "${LOG_EXPORT_AWS_S3_ENDPOINT-}"
+healthcheck.enabled = true
+inputs = ["log_json"]
+compression = "gzip"
+framing.method = "newline_delimited"
+encoding.codec = "json"
+key_prefix = "{{fly.app.name}}/%Y/%F/"
+batch.timeout_secs = ${LOG_EXPORT_BATCH_TIMEOUT_SECS-900}
