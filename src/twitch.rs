@@ -229,7 +229,16 @@ async fn resolve_channel(channel_name: String) -> Result<Vec<PlaylistItem>, &'st
     return Err("received non-200 response from Twitch");
   }
 
-  let response_data: ChannelResponseData = serde_json::from_str(response_text.as_str()).unwrap();
+  let response_data: ChannelResponseData = match serde_json::from_str(response_text.as_str()) {
+    Ok(v) => v,
+    Err(e) => {
+      log::error!("error: {:?}", e);
+      if cfg!(debug_assertions) {
+        log::info!("response_text: {}", response_text);
+      }
+      return Err("error deserializing data");
+    }
+  };
   if cfg!(debug_assertions) {
     log::info!("response_data: {:?}", response_data);
   }
@@ -288,7 +297,16 @@ async fn resolve_video(video_id: String) -> Result<Vec<PlaylistItem>, &'static s
     return Err("received non-200 response from Twitch");
   }
 
-  let response_data: VideoResponseData = serde_json::from_str(response_text.as_str()).unwrap();
+  let response_data: VideoResponseData = match serde_json::from_str(response_text.as_str()) {
+    Ok(v) => v,
+    Err(e) => {
+      log::error!("error: {:?}", e);
+      if cfg!(debug_assertions) {
+        log::info!("response_text: {}", response_text);
+      }
+      return Err("error deserializing data");
+    }
+  };
   if cfg!(debug_assertions) {
     log::info!("response_data: {:?}", response_data);
   }
@@ -343,7 +361,16 @@ async fn resolve_clip(slug: String) -> Result<Vec<PlaylistItem>, &'static str> {
     return Err("received non-200 response from Twitch");
   }
 
-  let response_data: ClipResponseData = serde_json::from_str(response_text.as_str()).unwrap();
+  let response_data: ClipResponseData = match serde_json::from_str(response_text.as_str()) {
+    Ok(v) => v,
+    Err(e) => {
+      log::error!("error: {:?}", e);
+      if cfg!(debug_assertions) {
+        log::info!("response_text: {}", response_text);
+      }
+      return Err("error deserializing data");
+    }
+  };
   if cfg!(debug_assertions) {
     log::info!("response_data: {:?}", response_data);
   }
@@ -352,7 +379,13 @@ async fn resolve_clip(slug: String) -> Result<Vec<PlaylistItem>, &'static str> {
   }
   let clip = response_data.data.clip.unwrap();
   let token_value: ClipTokenValue =
-    serde_json::from_str(clip.playback_access_token.value.as_str()).unwrap();
+    match serde_json::from_str(clip.playback_access_token.value.as_str()) {
+      Ok(v) => v,
+      Err(e) => {
+        log::error!("error: {:?}", e);
+        return Err("error deserializing token_value");
+      }
+    };
   if cfg!(debug_assertions) {
     log::info!("token_value: {:?}", token_value);
   }
