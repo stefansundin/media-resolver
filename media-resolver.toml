@@ -1,3 +1,7 @@
 # You can also set the configuration using environment variables (uppercase versions of these keys).
 
+# Use 0.0.0.0 if you want other computers to be able to connect
+host = "127.0.0.1"
+port = 8080
+
 twitch_client_id = "youcanfindthisonline"

@@ -11,11 +11,17 @@ use std::env;
 
 #[derive(Debug, Deserialize)]
 pub struct AppConfig {
+  host: String,
+  port: u16,
   twitch_client_id: Option<String>,
 }
 
 pub static CONFIG: Lazy<AppConfig> = Lazy::new(|| {
   Config::builder()
+    .set_default("host", "127.0.0.1")
+    .unwrap()
+    .set_default("port", 8080)
+    .unwrap()
     .add_source(config::File::with_name("media-resolver.toml"))
     .add_source(config::Environment::default())
     .build()
@@ -60,7 +66,7 @@ async fn main() -> std::io::Result<()> {
         .as_str(),
     ))
   })
-  .bind(("0.0.0.0", 8080))?
+  .bind((CONFIG.host.as_str(), CONFIG.port))?
   .run()
   .await
 }

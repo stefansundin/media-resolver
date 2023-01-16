@@ -29,5 +29,8 @@ COPY --from=builder /src/vector.toml /etc/vector/vector.toml
 COPY --from=vector /usr/bin/vector /usr/bin/vector
 RUN mkdir -p /var/lib/vector/
 
+ENV HOST=0.0.0.0
+ENV PORT=8080
+
 EXPOSE 8080
 ENTRYPOINT [ "/entrypoint.sh" ]
