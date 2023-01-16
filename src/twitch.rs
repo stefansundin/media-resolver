@@ -4,7 +4,7 @@ use log;
 use regex::Regex;
 use serde::Deserialize;
 use serde_json::json;
-use std::{env, result::Result};
+use std::result::Result;
 use urlencoding;
 
 use crate::PlaylistItem;
@@ -12,8 +12,6 @@ use crate::PlaylistItem;
 const GRAPHQL_URL: &str = "https://gql.twitch.tv/gql";
 
 lazy_static! {
-  static ref CLIENT_ID: String = env::var("TWITCH_CLIENT_ID").unwrap_or(String::from(""));
-
   // https://www.twitch.tv/speedgaming
   static ref CHANNEL_URL_PATTERNS: [Regex; 1] = [
     Regex::new(r"^https?://www\.twitch\.tv/(?P<channel_name>[^/?#]+)").unwrap(),
@@ -144,7 +142,7 @@ struct PlaybackAccessToken {
 }
 
 pub fn probe(url: &str) -> Option<TwitchMatch> {
-  if CLIENT_ID.eq("") {
+  if crate::CONFIG.twitch_client_id.is_none() {
     return None;
   }
 
@@ -214,9 +212,10 @@ async fn resolve_channel(channel_name: String) -> Result<Vec<PlaylistItem>, &'st
   let client = reqwest::Client::builder()
     .build()
     .expect("build reqwest client");
+  let client_id = crate::CONFIG.twitch_client_id.as_ref().unwrap().as_str();
   let response = client
     .post(GRAPHQL_URL)
-    .header("Client-ID", (*CLIENT_ID).as_str())
+    .header("Client-ID", client_id)
     .body(serde_json::to_string(&request_data).unwrap())
     .send()
     .await
@@ -282,9 +281,10 @@ async fn resolve_video(video_id: String) -> Result<Vec<PlaylistItem>, &'static s
   let client = reqwest::Client::builder()
     .build()
     .expect("build reqwest client");
+  let client_id = crate::CONFIG.twitch_client_id.as_ref().unwrap().as_str();
   let response = client
     .post(GRAPHQL_URL)
-    .header("Client-ID", (*CLIENT_ID).as_str())
+    .header("Client-ID", client_id)
     .body(request_data)
     .send()
     .await
@@ -346,9 +346,10 @@ async fn resolve_clip(slug: String) -> Result<Vec<PlaylistItem>, &'static str> {
   let client = reqwest::Client::builder()
     .build()
     .expect("build reqwest client");
+  let client_id = crate::CONFIG.twitch_client_id.as_ref().unwrap().as_str();
   let response = client
     .post(GRAPHQL_URL)
-    .header("Client-ID", (*CLIENT_ID).as_str())
+    .header("Client-ID", client_id)
     .body(request_data)
     .send()
     .await

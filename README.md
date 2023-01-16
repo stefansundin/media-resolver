@@ -3,7 +3,7 @@ VLC Playlist Parser Proxy... [because VLC can't POST 🤦‍♂️](https://code
 Run locally:
 
 ```shell
-export TWITCH_CLIENT_ID=youcanfindthisonline
+# first edit media-resolver.toml
 cargo run
 ```
 
