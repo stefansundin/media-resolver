@@ -1,0 +1,30 @@
+query(
+  $login: String!
+  $limit: Int!
+  $cursor: Cursor
+  $type: BroadcastType
+  $sort: VideoSort
+) {
+  user(login: $login) {
+    displayName
+    videos(first: $limit, after: $cursor, type: $type, sort: $sort) {
+      edges {
+        cursor
+        node {
+          id
+          title
+          description
+          recordedAt
+          duration
+          language
+          game {
+            displayName
+          }
+        }
+      }
+      pageInfo {
+        hasNextPage
+      }
+    }
+  }
+}
