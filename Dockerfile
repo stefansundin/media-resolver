@@ -1,4 +1,4 @@
-FROM rust:1-bullseye AS builder
+FROM rust:1-bookworm AS builder
 
 RUN rustup --version
 
@@ -18,7 +18,7 @@ RUN cargo build --release
 FROM timberio/vector:0.36.X-debian AS vector
 
 
-FROM debian:bullseye-slim
+FROM debian:bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y ca-certificates
