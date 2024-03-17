@@ -22,7 +22,7 @@ pub static CONFIG: Lazy<AppConfig> = Lazy::new(|| {
     .unwrap()
     .set_default("port", 8080)
     .unwrap()
-    .add_source(config::File::with_name("media-resolver.toml"))
+    .add_source(config::File::with_name("media-resolver.toml").required(false))
     .add_source(config::Environment::default())
     .build()
     .unwrap()
