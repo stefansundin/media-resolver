@@ -1,7 +1,7 @@
-use http::StatusCode;
 use lazy_static::lazy_static;
 use log;
 use regex::Regex;
+use reqwest::StatusCode;
 use serde::Deserialize;
 use serde_json::json;
 use std::result::Result;
@@ -303,7 +303,7 @@ async fn resolve_channel(channel_name: String) -> Result<Vec<PlaylistItem>, &'st
   let response_status = response.status();
   let response_text = response.text().await.expect("read response data");
 
-  if response_status != (StatusCode::OK) {
+  if response_status != StatusCode::OK {
     log::error!("bad response: {} - {:?}", response_status, response_text);
     return Err("received non-200 response from Twitch");
   }
@@ -379,7 +379,7 @@ async fn resolve_channel_videos(
   let response_status = response.status();
   let response_text = response.text().await.expect("read response data");
 
-  if response_status != (StatusCode::OK) {
+  if response_status != StatusCode::OK {
     log::error!("bad response: {} - {:?}", response_status, response_text);
     return Err("received non-200 response from Twitch");
   }
@@ -470,7 +470,7 @@ async fn resolve_video(video_id: String) -> Result<Vec<PlaylistItem>, &'static s
   let response_status = response.status();
   let response_text = response.text().await.expect("read response data");
 
-  if response_status != (StatusCode::OK) {
+  if response_status != StatusCode::OK {
     log::error!("bad response: {} - {:?}", response_status, response_text);
     return Err("received non-200 response from Twitch");
   }
@@ -539,7 +539,7 @@ async fn resolve_clip(slug: String) -> Result<Vec<PlaylistItem>, &'static str> {
   let response_status = response.status();
   let response_text = response.text().await.expect("read response data");
 
-  if response_status != (StatusCode::OK) {
+  if response_status != StatusCode::OK {
     log::error!("bad response: {} - {:?}", response_status, response_text);
     return Err("received non-200 response from Twitch");
   }
