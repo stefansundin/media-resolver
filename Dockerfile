@@ -14,8 +14,8 @@ COPY . .
 RUN cargo build --release
 
 
-# Vector can ship the logs when the app is hosted on fly, configure in vector.toml
-FROM timberio/vector:0.26.0-debian AS vector
+# Vector can ship the logs when the app is hosted on fly, configure in vector.yaml
+FROM timberio/vector:0.36.X-debian AS vector
 
 
 FROM debian:bullseye-slim
@@ -25,7 +25,8 @@ RUN apt-get update && apt-get install -y ca-certificates
 
 COPY --from=builder /src/target/release/media-resolver /
 COPY --from=builder /src/entrypoint.sh /entrypoint.sh
-COPY --from=builder /src/vector.toml /etc/vector/vector.toml
+COPY --from=builder /src/vector.sh /vector.sh
+COPY --from=builder /src/vector.yaml /etc/vector/vector.yaml
 COPY --from=vector /usr/bin/vector /usr/bin/vector
 RUN mkdir -p /var/lib/vector/
 
