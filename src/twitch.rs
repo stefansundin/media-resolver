@@ -264,7 +264,14 @@ pub fn probe(url: &str) -> Option<TwitchMatch> {
 
 pub async fn resolve(m: TwitchMatch) -> Result<Vec<PlaylistItem>, &'static str> {
   match m {
-    TwitchMatch::Channel(channel_name) => resolve_channel(channel_name).await,
+    TwitchMatch::Channel(channel_name) => {
+      if channel_name == "twit" {
+        // These guys are responsible for most of the traffic and it is a bit annoying
+        // Until I can make this configurable in the config file, this channel will just be blocked like this
+        return Err("payment required");
+      }
+      resolve_channel(channel_name).await
+    }
     TwitchMatch::ChannelVideos(channel_name, filter, sort, cursor) => {
       resolve_channel_videos(channel_name, filter, sort, cursor).await
     }

@@ -99,6 +99,8 @@ async fn resolve(web::Query(q): web::Query<ResolveRequest>) -> HttpResponse {
         let mut error_status = if output == "json" {
           // VLC playlist parsers can't read the data of non-200 responses
           HttpResponse::Ok()
+        } else if e == "payment required" {
+          HttpResponse::PaymentRequired()
         } else {
           HttpResponse::InternalServerError()
         };
