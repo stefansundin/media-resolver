@@ -335,10 +335,7 @@ async fn resolve_channel(channel_name: String) -> Result<Vec<PlaylistItem>, &'st
   let response_data: ChannelResponseData = match serde_json::from_str(response_text.as_str()) {
     Ok(v) => v,
     Err(e) => {
-      log::error!("error: {:?}", e);
-      if cfg!(debug_assertions) {
-        log::info!("response_text: {}", response_text);
-      }
+      log::error!("error: {:?}, data: {}", e, response_text);
       return Err("error deserializing data");
     }
   };
@@ -412,10 +409,7 @@ async fn resolve_channel_videos(
   {
     Ok(v) => v,
     Err(e) => {
-      log::error!("error: {:?}", e);
-      if cfg!(debug_assertions) {
-        log::info!("response_text: {}", response_text);
-      }
+      log::error!("error: {:?}, data: {}", e, response_text);
       return Err("error deserializing data");
     }
   };
@@ -502,10 +496,7 @@ async fn resolve_video(video_id: String) -> Result<Vec<PlaylistItem>, &'static s
   let response_data: VideoResponseData = match serde_json::from_str(response_text.as_str()) {
     Ok(v) => v,
     Err(e) => {
-      log::error!("error: {:?}", e);
-      if cfg!(debug_assertions) {
-        log::info!("response_text: {}", response_text);
-      }
+      log::error!("error: {:?}, data: {}", e, response_text);
       return Err("error deserializing data");
     }
   };
@@ -571,10 +562,7 @@ async fn resolve_clip(slug: String) -> Result<Vec<PlaylistItem>, &'static str> {
   let response_data: ClipResponseData = match serde_json::from_str(response_text.as_str()) {
     Ok(v) => v,
     Err(e) => {
-      log::error!("error: {:?}", e);
-      if cfg!(debug_assertions) {
-        log::info!("response_text: {}", response_text);
-      }
+      log::error!("error: {:?}, data: {}", e, response_text);
       return Err("error deserializing data");
     }
   };
