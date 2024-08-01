@@ -3,11 +3,11 @@ pub mod twitch;
 use actix_web::{get, middleware, web, App, HttpResponse, HttpServer};
 use config::Config;
 use env_logger;
-use log::{self, warn};
-use once_cell::sync::Lazy;
+use log::{self, info, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::env;
+use std::sync::LazyLock;
 
 #[derive(Debug, Deserialize)]
 pub struct AppConfig {
@@ -16,7 +16,7 @@ pub struct AppConfig {
   twitch_client_id: Option<String>,
 }
 
-pub static CONFIG: Lazy<AppConfig> = Lazy::new(|| {
+pub static CONFIG: LazyLock<AppConfig> = LazyLock::new(|| {
   Config::builder()
     .set_default("host", "127.0.0.1")
     .unwrap()
@@ -53,6 +53,7 @@ pub struct PlaylistItem {
 async fn main() -> std::io::Result<()> {
   env_logger::init_from_env(env_logger::Env::default().default_filter_or("info"));
 
+  info!("Configuration:\n{:#?}", *CONFIG);
   if CONFIG.twitch_client_id.is_none() {
     warn!("twitch_client_id has not been configured! Please edit media-resolver.toml and then restart the program.");
   }

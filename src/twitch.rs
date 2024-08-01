@@ -1,49 +1,66 @@
-use lazy_static::lazy_static;
 use log;
 use regex::Regex;
 use reqwest::StatusCode;
 use serde::Deserialize;
 use serde_json::json;
-use std::result::Result;
+use std::{result::Result, sync::OnceLock};
 use urlencoding;
 
 use crate::PlaylistItem;
 
 const GRAPHQL_URL: &str = "https://gql.twitch.tv/gql";
 
-lazy_static! {
-  // https://www.twitch.tv/speedgaming
-  static ref CHANNEL_URL_PATTERNS: [Regex; 1] = [
-    Regex::new(r"^https?://www\.twitch\.tv/(?P<channel_name>[^/?#]+)").unwrap(),
-  ];
+pub fn channel_url_patterns() -> &'static [Regex] {
+  static CHANNEL_URL_PATTERNS: OnceLock<[Regex; 1]> = OnceLock::new();
+  CHANNEL_URL_PATTERNS.get_or_init(|| {
+    [
+      // https://www.twitch.tv/speedgaming
+      Regex::new(r"^https?://www\.twitch\.tv/(?P<channel_name>[^/?#]+)").unwrap(),
+    ]
+  })
+}
 
-  // https://www.twitch.tv/speedgaming/videos
-  // https://www.twitch.tv/speedgaming/videos?filter=all&sort=time
-  // https://www.twitch.tv/speedgaming/videos?filter=archives&sort=time
-  // https://www.twitch.tv/speedgaming/videos?filter=archives&sort=views
-  // https://www.twitch.tv/speedgaming/videos?filter=highlights&sort=time
-  // https://www.twitch.tv/speedgaming/videos?filter=all&sort=time&cursor=1705053235|21|2023-01-12T11:49:13Z
-  // TODO: Should probably parse the query string in another way
-  static ref CHANNEL_VIDEOS_URL_PATTERNS: [Regex; 1] = [
-    Regex::new(r"^https?://www\.twitch\.tv/(?P<channel_name>[^/?#]+)/videos(?:[?&#](?:filter=(?P<filter>[^&#]+)|sort=(?P<sort>[^&#]+)|cursor=(?P<cursor>[^&#]+)))*").unwrap(),
-  ];
+pub fn channel_videos_url_patterns() -> &'static [Regex] {
+  static CHANNEL_VIDEOS_URL_PATTERNS: OnceLock<[Regex; 1]> = OnceLock::new();
+  CHANNEL_VIDEOS_URL_PATTERNS.get_or_init(|| {
+    [
+      // https://www.twitch.tv/speedgaming/videos
+      // https://www.twitch.tv/speedgaming/videos?filter=all&sort=time
+      // https://www.twitch.tv/speedgaming/videos?filter=archives&sort=time
+      // https://www.twitch.tv/speedgaming/videos?filter=archives&sort=views
+      // https://www.twitch.tv/speedgaming/videos?filter=highlights&sort=time
+      // https://www.twitch.tv/speedgaming/videos?filter=all&sort=time&cursor=1705053235|21|2023-01-12T11:49:13Z
+      // TODO: Should probably parse the query string in another way
+      Regex::new(r"^https?://www\.twitch\.tv/(?P<channel_name>[^/?#]+)/videos(?:[?&#](?:filter=(?P<filter>[^&#]+)|sort=(?P<sort>[^&#]+)|cursor=(?P<cursor>[^&#]+)))*").unwrap(),
+    ]
+  })
+}
 
-  // https://www.twitch.tv/videos/113837699
-  // https://www.twitch.tv/gamesdonequick/video/113837699 (legacy url)
-  // https://www.twitch.tv/gamesdonequick/v/113837699 (legacy url)
-  // https://player.twitch.tv/?video=v113837699&parent=example.com ("v" is optional)
-  static ref VIDEO_URL_PATTERNS: [Regex; 3] = [
-    Regex::new(r"^https?://www\.twitch\.tv/videos/(?P<video_id>\d+)").unwrap(),
-    Regex::new(r"^https?://www\.twitch\.tv/[^/]+/v(?:ideo)?/(?P<video_id>\d+)").unwrap(),
-    Regex::new(r"^https?://player\.twitch\.tv/[^#]*[?&]video=v?(?P<video_id>\d+)").unwrap(),
-  ];
+pub fn video_url_patterns() -> &'static [Regex] {
+  static VIDEO_URL_PATTERNS: OnceLock<[Regex; 3]> = OnceLock::new();
+  VIDEO_URL_PATTERNS.get_or_init(|| {
+    [
+      // https://www.twitch.tv/videos/113837699
+      Regex::new(r"^https?://www\.twitch\.tv/videos/(?P<video_id>\d+)").unwrap(),
+      // https://www.twitch.tv/gamesdonequick/video/113837699 (legacy url)
+      // https://www.twitch.tv/gamesdonequick/v/113837699 (legacy url)
+      Regex::new(r"^https?://www\.twitch\.tv/[^/]+/v(?:ideo)?/(?P<video_id>\d+)").unwrap(),
+      // https://player.twitch.tv/?video=v113837699&parent=example.com ("v" is optional)
+      Regex::new(r"^https?://player\.twitch\.tv/[^#]*[?&]video=v?(?P<video_id>\d+)").unwrap(),
+    ]
+  })
+}
 
-  // https://clips.twitch.tv/AmazonianKnottyLapwingSwiftRage
-  // https://www.twitch.tv/gamesdonequick/clip/ExuberantMiniatureSandpiperDogFace
-  static ref CLIP_URL_PATTERNS: [Regex; 2] = [
-    Regex::new(r"^https?://clips\.twitch\.tv/(?P<slug>[^/?#]+)").unwrap(),
-    Regex::new(r"^https?://www\.twitch\.tv/[^/]+/clip/(?P<slug>[^/?#]+)").unwrap(),
-  ];
+pub fn clip_url_patterns() -> &'static [Regex] {
+  static CLIP_URL_PATTERNS: OnceLock<[Regex; 2]> = OnceLock::new();
+  CLIP_URL_PATTERNS.get_or_init(|| {
+    [
+      // https://clips.twitch.tv/AmazonianKnottyLapwingSwiftRage
+      Regex::new(r"^https?://clips\.twitch\.tv/(?P<slug>[^/?#]+)").unwrap(),
+      // https://www.twitch.tv/gamesdonequick/clip/ExuberantMiniatureSandpiperDogFace
+      Regex::new(r"^https?://www\.twitch\.tv/[^/]+/clip/(?P<slug>[^/?#]+)").unwrap(),
+    ]
+  })
 }
 
 #[derive(Debug)]
@@ -197,7 +214,7 @@ pub fn probe(url: &str) -> Option<TwitchMatch> {
     return None;
   }
 
-  for re in CLIP_URL_PATTERNS.iter() {
+  for re in clip_url_patterns().iter() {
     if cfg!(debug_assertions) {
       log::info!("re: {:?}", re);
     }
@@ -209,7 +226,7 @@ pub fn probe(url: &str) -> Option<TwitchMatch> {
     }
   }
 
-  for re in VIDEO_URL_PATTERNS.iter() {
+  for re in video_url_patterns().iter() {
     if cfg!(debug_assertions) {
       log::info!("re: {:?}", re);
     }
@@ -221,7 +238,7 @@ pub fn probe(url: &str) -> Option<TwitchMatch> {
     }
   }
 
-  for re in CHANNEL_VIDEOS_URL_PATTERNS.iter() {
+  for re in channel_videos_url_patterns().iter() {
     if cfg!(debug_assertions) {
       log::info!("re: {:?}", re);
     }
@@ -247,7 +264,7 @@ pub fn probe(url: &str) -> Option<TwitchMatch> {
     }
   }
 
-  for re in CHANNEL_URL_PATTERNS.iter() {
+  for re in channel_url_patterns().iter() {
     if cfg!(debug_assertions) {
       log::info!("re: {:?}", re);
     }
