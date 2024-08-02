@@ -2,8 +2,13 @@
 
 ```shell
 # Build for Linux:
-rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu armv7-unknown-linux-gnueabihf
-cargo build --release --target=x86_64-unknown-linux-gnu --target=aarch64-unknown-linux-gnu --target=armv7-unknown-linux-gnueabihf
+rustup target add x86_64-unknown-linux-gnu
+cargo build --release --target=x86_64-unknown-linux-gnu
+
+cargo install cross
+cross build --release --target=x86_64-unknown-linux-gnu
+cross build --release --target=aarch64-unknown-linux-gnu
+cross build --release --target=armv7-unknown-linux-gnueabihf
 
 # Build for macOS:
 rustup target add aarch64-apple-darwin x86_64-apple-darwin
