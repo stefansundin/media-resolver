@@ -60,11 +60,7 @@ async fn main() -> std::io::Result<()> {
 
   HttpServer::new(|| {
     App::new().service(resolve).wrap(middleware::Logger::new(
-      env::var("ACCESS_LOG_FORMAT")
-        .unwrap_or(String::from(
-          r#"%{r}a "%r" %s %b "%{Referer}i" "%{User-Agent}i" %T"#,
-        ))
-        .as_str(),
+      env::var("ACCESS_LOG_FORMAT").unwrap_or(String::from(r#"%{r}a "%r" %s %b "%{Referer}i" "%{User-Agent}i" %T"#)).as_str(),
     ))
   })
   .bind((CONFIG.host.as_str(), CONFIG.port))?
@@ -117,9 +113,7 @@ async fn resolve(web::Query(q): web::Query<ResolveRequest>) -> HttpResponse {
     if output == "json" {
       return HttpResponse::Ok().json(playlist);
     } else if playlist.len() > 0 {
-      return HttpResponse::TemporaryRedirect()
-        .append_header(("Location", playlist.first().unwrap().path.as_str()))
-        .finish();
+      return HttpResponse::TemporaryRedirect().append_header(("Location", playlist.first().unwrap().path.as_str())).finish();
     } else {
       return HttpResponse::NotFound().finish();
     }

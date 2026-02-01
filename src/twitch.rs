@@ -1,12 +1,13 @@
 use log;
 use regex::Regex;
 use reqwest::StatusCode;
-use serde::Deserialize;
 use serde_json::json;
 use std::{result::Result, sync::OnceLock};
 use urlencoding;
 
 use crate::PlaylistItem;
+
+pub mod types;
 
 const GRAPHQL_URL: &str = "https://gql.twitch.tv/gql";
 
@@ -63,153 +64,7 @@ pub fn clip_url_patterns() -> &'static [Regex] {
   })
 }
 
-#[derive(Debug)]
-pub enum TwitchMatch {
-  Channel(String),
-  ChannelVideos(String, String, String, Option<String>),
-  Video(String),
-  Clip(String),
-}
-
-// Channel
-#[derive(Debug, Deserialize)]
-struct ChannelResponseData {
-  data: ChannelData,
-}
-
-#[derive(Debug, Deserialize)]
-struct ChannelData {
-  channel: Option<Channel>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Channel {
-  display_name: Option<String>,
-  stream: Option<Stream>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Stream {
-  title: String,
-  created_at: String,
-  language: String,
-  game: Option<Game>,
-  playback_access_token: PlaybackAccessToken,
-}
-
-// ChannelVideos
-#[derive(Debug, Deserialize)]
-struct ChannelVideosResponseData {
-  data: ChannelVideosData,
-}
-
-#[derive(Debug, Deserialize)]
-struct ChannelVideosData {
-  user: Option<UserWithVideos>,
-}
-
-// Video
-#[derive(Debug, Deserialize)]
-struct VideoResponseData {
-  data: VideoData,
-}
-
-#[derive(Debug, Deserialize)]
-struct VideoData {
-  video: Option<Video>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Video {
-  id: Option<String>,
-  title: String,
-  description: Option<String>,
-  owner: Option<User>,
-  game: Option<Game>,
-  recorded_at: String,
-  duration: String,
-  language: String,
-  playback_access_token: Option<PlaybackAccessToken>,
-}
-
-// Clip
-#[derive(Debug, Deserialize)]
-struct ClipResponseData {
-  data: ClipData,
-}
-
-#[derive(Debug, Deserialize)]
-struct ClipData {
-  clip: Option<Clip>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Clip {
-  title: String,
-  broadcaster: User,
-  game: Option<Game>,
-  created_at: String,
-  duration_seconds: usize,
-  language: String,
-  playback_access_token: PlaybackAccessToken,
-}
-
-#[derive(Debug, Deserialize)]
-struct ClipTokenValue {
-  clip_uri: String,
-}
-
-// Shared
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Game {
-  display_name: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct User {
-  display_name: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct UserWithVideos {
-  display_name: String,
-  videos: VideoConnection,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct VideoConnection {
-  edges: Vec<VideoEdge>,
-  page_info: PageInfo,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct VideoEdge {
-  cursor: String,
-  node: Video,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PageInfo {
-  has_next_page: bool,
-}
-
-#[derive(Debug, Deserialize)]
-struct PlaybackAccessToken {
-  signature: String,
-  value: String,
-}
-
-pub fn probe(url: &str) -> Option<TwitchMatch> {
+pub fn probe(url: &str) -> Option<types::TwitchMatch> {
   if crate::CONFIG.twitch_client_id.is_none() {
     return None;
   }
@@ -220,9 +75,7 @@ pub fn probe(url: &str) -> Option<TwitchMatch> {
     }
     let ret = re.captures(url);
     if ret.is_some() {
-      return Some(TwitchMatch::Clip(
-        ret.unwrap().get(1).unwrap().as_str().to_string(),
-      ));
+      return Some(types::TwitchMatch::Clip(ret.unwrap().get(1).unwrap().as_str().to_string()));
     }
   }
 
@@ -232,9 +85,7 @@ pub fn probe(url: &str) -> Option<TwitchMatch> {
     }
     let ret = re.captures(url);
     if ret.is_some() {
-      return Some(TwitchMatch::Video(
-        ret.unwrap().get(1).unwrap().as_str().to_string(),
-      ));
+      return Some(types::TwitchMatch::Video(ret.unwrap().get(1).unwrap().as_str().to_string()));
     }
   }
 
@@ -246,21 +97,10 @@ pub fn probe(url: &str) -> Option<TwitchMatch> {
     if ret.is_some() {
       let captures = ret.unwrap();
       let channel_name = captures.name("channel_name").unwrap().as_str().to_string();
-      let filter = captures
-        .name("filter")
-        .map(|m| m.as_str().to_string())
-        .unwrap_or("all".to_string());
-      let sort = captures
-        .name("sort")
-        .map(|m| m.as_str().to_string())
-        .unwrap_or("time".to_string());
+      let filter = captures.name("filter").map(|m| m.as_str().to_string()).unwrap_or("all".to_string());
+      let sort = captures.name("sort").map(|m| m.as_str().to_string()).unwrap_or("time".to_string());
       let cursor = captures.name("cursor").map(|m| m.as_str().to_string());
-      return Some(TwitchMatch::ChannelVideos(
-        channel_name,
-        filter,
-        sort,
-        cursor,
-      ));
+      return Some(types::TwitchMatch::ChannelVideos(channel_name, filter, sort, cursor));
     }
   }
 
@@ -270,18 +110,16 @@ pub fn probe(url: &str) -> Option<TwitchMatch> {
     }
     let ret = re.captures(url);
     if ret.is_some() {
-      return Some(TwitchMatch::Channel(
-        ret.unwrap().get(1).unwrap().as_str().to_lowercase(),
-      ));
+      return Some(types::TwitchMatch::Channel(ret.unwrap().get(1).unwrap().as_str().to_lowercase()));
     }
   }
 
   return None;
 }
 
-pub async fn resolve(m: TwitchMatch) -> Result<Vec<PlaylistItem>, &'static str> {
+pub async fn resolve(m: types::TwitchMatch) -> Result<Vec<PlaylistItem>, &'static str> {
   match m {
-    TwitchMatch::Channel(channel_name) => {
+    types::TwitchMatch::Channel(channel_name) => {
       if channel_name == "twit" {
         // These guys are responsible for most of the traffic and it is a bit annoying
         // Until I can make this configurable in the config file, this channel will just be blocked like this
@@ -289,11 +127,9 @@ pub async fn resolve(m: TwitchMatch) -> Result<Vec<PlaylistItem>, &'static str> 
       }
       resolve_channel(channel_name).await
     }
-    TwitchMatch::ChannelVideos(channel_name, filter, sort, cursor) => {
-      resolve_channel_videos(channel_name, filter, sort, cursor).await
-    }
-    TwitchMatch::Video(video_id) => resolve_video(video_id).await,
-    TwitchMatch::Clip(slug) => resolve_clip(slug).await,
+    types::TwitchMatch::ChannelVideos(channel_name, filter, sort, cursor) => resolve_channel_videos(channel_name, filter, sort, cursor).await,
+    types::TwitchMatch::Video(video_id) => resolve_video(video_id).await,
+    types::TwitchMatch::Clip(slug) => resolve_clip(slug).await,
   }
 }
 
@@ -313,9 +149,7 @@ async fn resolve_channel(channel_name: String) -> Result<Vec<PlaylistItem>, &'st
     },
   });
 
-  let client = reqwest::Client::builder()
-    .build()
-    .expect("build reqwest client");
+  let client = reqwest::Client::builder().build().expect("build reqwest client");
   let client_id = crate::CONFIG.twitch_client_id.as_ref().unwrap().as_str();
   let response = client
     .post(GRAPHQL_URL)
@@ -332,7 +166,7 @@ async fn resolve_channel(channel_name: String) -> Result<Vec<PlaylistItem>, &'st
     return Err("received non-200 response from Twitch");
   }
 
-  let response_data: ChannelResponseData = match serde_json::from_str(response_text.as_str()) {
+  let response_data: types::ChannelResponseData = match serde_json::from_str(response_text.as_str()) {
     Ok(v) => v,
     Err(e) => {
       log::error!("error: {:?}, data: {}", e, response_text);
@@ -368,12 +202,7 @@ async fn resolve_channel(channel_name: String) -> Result<Vec<PlaylistItem>, &'st
   }]);
 }
 
-async fn resolve_channel_videos(
-  channel_name: String,
-  filter: String,
-  sort: String,
-  cursor: Option<String>,
-) -> Result<Vec<PlaylistItem>, &'static str> {
+async fn resolve_channel_videos(channel_name: String, filter: String, sort: String, cursor: Option<String>) -> Result<Vec<PlaylistItem>, &'static str> {
   let q = json!({
     "query": include_str!("twitch/channel_videos.gql"),
     "variables": {
@@ -386,17 +215,9 @@ async fn resolve_channel_videos(
   });
   let request_data = serde_json::to_string(&q).unwrap();
 
-  let client = reqwest::Client::builder()
-    .build()
-    .expect("build reqwest client");
+  let client = reqwest::Client::builder().build().expect("build reqwest client");
   let client_id = crate::CONFIG.twitch_client_id.as_ref().unwrap().as_str();
-  let response = client
-    .post(GRAPHQL_URL)
-    .header("Client-ID", client_id)
-    .body(request_data)
-    .send()
-    .await
-    .expect("send graphql request");
+  let response = client.post(GRAPHQL_URL).header("Client-ID", client_id).body(request_data).send().await.expect("send graphql request");
   let response_status = response.status();
   let response_text = response.text().await.expect("read response data");
 
@@ -405,8 +226,7 @@ async fn resolve_channel_videos(
     return Err("received non-200 response from Twitch");
   }
 
-  let response_data: ChannelVideosResponseData = match serde_json::from_str(response_text.as_str())
-  {
+  let response_data: types::ChannelVideosResponseData = match serde_json::from_str(response_text.as_str()) {
     Ok(v) => v,
     Err(e) => {
       log::error!("error: {:?}, data: {}", e, response_text);
@@ -427,10 +247,7 @@ async fn resolve_channel_videos(
     .edges
     .into_iter()
     .map(|edge| PlaylistItem {
-      path: format!(
-        "https://www.twitch.tv/videos/{}",
-        edge.node.id.unwrap().as_str()
-      ),
+      path: format!("https://www.twitch.tv/videos/{}", edge.node.id.unwrap().as_str()),
       name: edge.node.title,
       description: edge.node.description,
       artist: Some(user.display_name.clone()),
@@ -443,13 +260,7 @@ async fn resolve_channel_videos(
 
   if user.videos.page_info.has_next_page {
     playlist.push(PlaylistItem {
-      path: format!(
-        "https://www.twitch.tv/{}/videos?filter={}&sort={}&cursor={}",
-        channel_name,
-        filter,
-        sort,
-        last_cursor.unwrap()
-      ),
+      path: format!("https://www.twitch.tv/{}/videos?filter={}&sort={}&cursor={}", channel_name, filter, sort, last_cursor.unwrap()),
       name: String::from("Load more"),
       description: None,
       artist: Some(user.display_name.clone()),
@@ -474,17 +285,9 @@ async fn resolve_video(video_id: String) -> Result<Vec<PlaylistItem>, &'static s
   });
   let request_data = serde_json::to_string(&q).unwrap();
 
-  let client = reqwest::Client::builder()
-    .build()
-    .expect("build reqwest client");
+  let client = reqwest::Client::builder().build().expect("build reqwest client");
   let client_id = crate::CONFIG.twitch_client_id.as_ref().unwrap().as_str();
-  let response = client
-    .post(GRAPHQL_URL)
-    .header("Client-ID", client_id)
-    .body(request_data)
-    .send()
-    .await
-    .expect("send graphql request");
+  let response = client.post(GRAPHQL_URL).header("Client-ID", client_id).body(request_data).send().await.expect("send graphql request");
   let response_status = response.status();
   let response_text = response.text().await.expect("read response data");
 
@@ -493,7 +296,7 @@ async fn resolve_video(video_id: String) -> Result<Vec<PlaylistItem>, &'static s
     return Err("received non-200 response from Twitch");
   }
 
-  let response_data: VideoResponseData = match serde_json::from_str(response_text.as_str()) {
+  let response_data: types::VideoResponseData = match serde_json::from_str(response_text.as_str()) {
     Ok(v) => v,
     Err(e) => {
       log::error!("error: {:?}, data: {}", e, response_text);
@@ -540,17 +343,9 @@ async fn resolve_clip(slug: String) -> Result<Vec<PlaylistItem>, &'static str> {
   });
   let request_data = serde_json::to_string(&q).unwrap();
 
-  let client = reqwest::Client::builder()
-    .build()
-    .expect("build reqwest client");
+  let client = reqwest::Client::builder().build().expect("build reqwest client");
   let client_id = crate::CONFIG.twitch_client_id.as_ref().unwrap().as_str();
-  let response = client
-    .post(GRAPHQL_URL)
-    .header("Client-ID", client_id)
-    .body(request_data)
-    .send()
-    .await
-    .expect("send graphql request");
+  let response = client.post(GRAPHQL_URL).header("Client-ID", client_id).body(request_data).send().await.expect("send graphql request");
   let response_status = response.status();
   let response_text = response.text().await.expect("read response data");
 
@@ -559,7 +354,7 @@ async fn resolve_clip(slug: String) -> Result<Vec<PlaylistItem>, &'static str> {
     return Err("received non-200 response from Twitch");
   }
 
-  let response_data: ClipResponseData = match serde_json::from_str(response_text.as_str()) {
+  let response_data: types::ClipResponseData = match serde_json::from_str(response_text.as_str()) {
     Ok(v) => v,
     Err(e) => {
       log::error!("error: {:?}, data: {}", e, response_text);
@@ -573,14 +368,13 @@ async fn resolve_clip(slug: String) -> Result<Vec<PlaylistItem>, &'static str> {
     return Err("clip is null");
   }
   let clip = response_data.data.clip.unwrap();
-  let token_value: ClipTokenValue =
-    match serde_json::from_str(clip.playback_access_token.value.as_str()) {
-      Ok(v) => v,
-      Err(e) => {
-        log::error!("error: {:?}", e);
-        return Err("error deserializing token_value");
-      }
-    };
+  let token_value: types::ClipTokenValue = match serde_json::from_str(clip.playback_access_token.value.as_str()) {
+    Ok(v) => v,
+    Err(e) => {
+      log::error!("error: {:?}", e);
+      return Err("error deserializing token_value");
+    }
+  };
   if cfg!(debug_assertions) {
     log::info!("token_value: {:?}", token_value);
   }
