@@ -1,6 +1,6 @@
 pub mod twitch;
 
-use actix_web::{get, middleware, web, App, HttpResponse, HttpServer};
+use actix_web::{App, HttpResponse, HttpServer, get, middleware, web};
 use config::Config;
 use env_logger;
 use log::{self, info, warn};
