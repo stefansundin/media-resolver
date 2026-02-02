@@ -2,7 +2,7 @@ use log;
 use regex::Regex;
 use reqwest::StatusCode;
 use serde_json::json;
-use std::{result::Result, sync::OnceLock};
+use std::{borrow::Cow, result::Result, sync::OnceLock};
 use urlencoding;
 
 use crate::PlaylistItem;
@@ -11,7 +11,7 @@ pub mod types;
 
 const GRAPHQL_URL: &str = "https://gql.twitch.tv/gql";
 
-pub fn channel_url_patterns() -> &'static [Regex] {
+fn channel_url_patterns() -> &'static [Regex] {
   static CHANNEL_URL_PATTERNS: OnceLock<[Regex; 1]> = OnceLock::new();
   CHANNEL_URL_PATTERNS.get_or_init(|| {
     [
@@ -21,7 +21,7 @@ pub fn channel_url_patterns() -> &'static [Regex] {
   })
 }
 
-pub fn channel_videos_url_patterns() -> &'static [Regex] {
+fn channel_videos_url_patterns() -> &'static [Regex] {
   static CHANNEL_VIDEOS_URL_PATTERNS: OnceLock<[Regex; 1]> = OnceLock::new();
   CHANNEL_VIDEOS_URL_PATTERNS.get_or_init(|| {
     [
@@ -37,7 +37,7 @@ pub fn channel_videos_url_patterns() -> &'static [Regex] {
   })
 }
 
-pub fn video_url_patterns() -> &'static [Regex] {
+fn video_url_patterns() -> &'static [Regex] {
   static VIDEO_URL_PATTERNS: OnceLock<[Regex; 3]> = OnceLock::new();
   VIDEO_URL_PATTERNS.get_or_init(|| {
     [
@@ -52,7 +52,7 @@ pub fn video_url_patterns() -> &'static [Regex] {
   })
 }
 
-pub fn clip_url_patterns() -> &'static [Regex] {
+fn clip_url_patterns() -> &'static [Regex] {
   static CLIP_URL_PATTERNS: OnceLock<[Regex; 2]> = OnceLock::new();
   CLIP_URL_PATTERNS.get_or_init(|| {
     [
@@ -73,9 +73,10 @@ pub fn probe(url: &str) -> Option<types::TwitchMatch> {
     if cfg!(debug_assertions) {
       log::info!("re: {:?}", re);
     }
-    let ret = re.captures(url);
-    if ret.is_some() {
-      return Some(types::TwitchMatch::Clip(ret.unwrap().get(1).unwrap().as_str().to_string()));
+    if let Some(captures) = re.captures(url)
+      && let Some(m) = captures.get(1)
+    {
+      return Some(types::TwitchMatch::Clip(m.as_str().to_string()));
     }
   }
 
@@ -83,9 +84,10 @@ pub fn probe(url: &str) -> Option<types::TwitchMatch> {
     if cfg!(debug_assertions) {
       log::info!("re: {:?}", re);
     }
-    let ret = re.captures(url);
-    if ret.is_some() {
-      return Some(types::TwitchMatch::Video(ret.unwrap().get(1).unwrap().as_str().to_string()));
+    if let Some(captures) = re.captures(url)
+      && let Some(m) = captures.get(1)
+    {
+      return Some(types::TwitchMatch::Video(m.as_str().to_string()));
     }
   }
 
@@ -93,9 +95,7 @@ pub fn probe(url: &str) -> Option<types::TwitchMatch> {
     if cfg!(debug_assertions) {
       log::info!("re: {:?}", re);
     }
-    let ret = re.captures(url);
-    if ret.is_some() {
-      let captures = ret.unwrap();
+    if let Some(captures) = re.captures(url) {
       let channel_name = captures.name("channel_name").unwrap().as_str().to_string();
       let filter = captures.name("filter").map(|m| m.as_str().to_string()).unwrap_or("all".to_string());
       let sort = captures.name("sort").map(|m| m.as_str().to_string()).unwrap_or("time".to_string());
@@ -108,22 +108,23 @@ pub fn probe(url: &str) -> Option<types::TwitchMatch> {
     if cfg!(debug_assertions) {
       log::info!("re: {:?}", re);
     }
-    let ret = re.captures(url);
-    if ret.is_some() {
-      return Some(types::TwitchMatch::Channel(ret.unwrap().get(1).unwrap().as_str().to_lowercase()));
+    if let Some(captures) = re.captures(url)
+      && let Some(m) = captures.get(1)
+    {
+      return Some(types::TwitchMatch::Channel(m.as_str().to_lowercase()));
     }
   }
 
   return None;
 }
 
-pub async fn resolve(m: types::TwitchMatch) -> Result<Vec<PlaylistItem>, &'static str> {
+pub async fn resolve(m: types::TwitchMatch) -> Result<Vec<PlaylistItem>, Cow<'static, str>> {
   match m {
     types::TwitchMatch::Channel(channel_name) => {
       if channel_name == "twit" {
         // These guys are responsible for most of the traffic and it is a bit annoying
         // Until I can make this configurable in the config file, this channel will just be blocked like this
-        return Err("payment required");
+        return Err("payment required".into());
       }
       resolve_channel(channel_name).await
     }
@@ -133,11 +134,11 @@ pub async fn resolve(m: types::TwitchMatch) -> Result<Vec<PlaylistItem>, &'stati
   }
 }
 
-async fn resolve_channel(channel_name: String) -> Result<Vec<PlaylistItem>, &'static str> {
+async fn resolve_channel(channel_name: String) -> Result<Vec<PlaylistItem>, Cow<'static, str>> {
   // https://www.twitch.tv/directory/game/Perfect%20Dark
   // https://www.twitch.tv/recaps/annual
   if channel_name == "directory" || channel_name == "recaps" {
-    return Err("unsupported channel name");
+    return Err("unsupported channel name".into());
   }
 
   let request_data = json!({
@@ -163,46 +164,56 @@ async fn resolve_channel(channel_name: String) -> Result<Vec<PlaylistItem>, &'st
 
   if response_status != StatusCode::OK {
     log::error!("bad response: {} - {:?}", response_status, response_text);
-    return Err("received non-200 response from Twitch");
+    return Err("received non-200 response from Twitch".into());
   }
 
   let response_data: types::ChannelResponseData = match serde_json::from_str(response_text.as_str()) {
     Ok(v) => v,
     Err(e) => {
       log::error!("error: {:?}, data: {}", e, response_text);
-      return Err("error deserializing data");
+      return Err("error deserializing data".into());
     }
   };
   if cfg!(debug_assertions) {
     log::info!("response_data: {:?}", response_data);
   }
-  if response_data.data.channel.is_none() {
-    return Err("channel does not exist");
-  }
-  let channel = response_data.data.channel.unwrap();
-  if channel.stream.is_none() {
-    return Err("channel is not live");
-  }
-  let stream = channel.stream.unwrap();
+  if let Some(data) = response_data.data {
+    if data.channel.is_none() {
+      return Err("channel does not exist".into());
+    }
+    let channel = data.channel.unwrap();
+    if channel.stream.is_none() {
+      return Err("channel is not live".into());
+    }
+    let stream = channel.stream.unwrap();
+    if stream.playback_access_token.is_none() {
+      return Err("playback_access_token is null".into());
+    }
+    let token = stream.playback_access_token.unwrap();
 
-  return Ok(vec![PlaylistItem {
-    path: format!(
-      "https://usher.ttvnw.net/api/channel/hls/{}.m3u8?allow_source=true&allow_audio_only=true&sig={}&token={}",
-      channel_name,
-      urlencoding::encode(stream.playback_access_token.signature.as_str()),
-      urlencoding::encode(stream.playback_access_token.value.as_str())
-    ),
-    name: stream.title,
-    description: None,
-    artist: channel.display_name,
-    genre: stream.game.map(|game| game.display_name),
-    date: Some(stream.created_at.replace("T", " ").replace("Z", "")),
-    duration: None,
-    language: Some(stream.language),
-  }]);
+    return Ok(vec![PlaylistItem {
+      path: format!(
+        "https://usher.ttvnw.net/api/channel/hls/{}.m3u8?allow_source=true&allow_audio_only=true&sig={}&token={}",
+        channel_name,
+        urlencoding::encode(token.signature.as_str()),
+        urlencoding::encode(token.value.as_str())
+      ),
+      name: stream.title.unwrap_or("Untitled".into()),
+      description: None,
+      artist: channel.display_name,
+      genre: stream.game.map(|game| game.display_name),
+      date: Some(stream.created_at.replace("T", " ").replace("Z", "")),
+      duration: None,
+      language: stream.language,
+    }]);
+  } else if let Some(errors) = response_data.errors {
+    return Err(format!("Twitch error: {}", errors.iter().map(|e| e.message.as_str()).collect::<Vec<&str>>().join(", ")).into());
+  } else {
+    return Err("unknown Twitch error".into());
+  }
 }
 
-async fn resolve_channel_videos(channel_name: String, filter: String, sort: String, cursor: Option<String>) -> Result<Vec<PlaylistItem>, &'static str> {
+async fn resolve_channel_videos(channel_name: String, filter: String, sort: String, cursor: Option<String>) -> Result<Vec<PlaylistItem>, Cow<'static, str>> {
   let q = json!({
     "query": include_str!("twitch/channel_videos.gql"),
     "variables": {
@@ -223,58 +234,62 @@ async fn resolve_channel_videos(channel_name: String, filter: String, sort: Stri
 
   if response_status != StatusCode::OK {
     log::error!("bad response: {} - {:?}", response_status, response_text);
-    return Err("received non-200 response from Twitch");
+    return Err("received non-200 response from Twitch".into());
   }
 
   let response_data: types::ChannelVideosResponseData = match serde_json::from_str(response_text.as_str()) {
     Ok(v) => v,
     Err(e) => {
       log::error!("error: {:?}, data: {}", e, response_text);
-      return Err("error deserializing data");
+      return Err("error deserializing data".into());
     }
   };
   if cfg!(debug_assertions) {
     log::info!("response_data: {:?}", response_data);
   }
-  if response_data.data.user.is_none() {
-    return Err("user is null");
+  if let Some(data) = response_data.data
+    && let Some(user) = data.user
+    && let Some(videos) = user.videos
+  {
+    let last_cursor = videos.edges.last().map(|edge| edge.cursor.clone()).flatten();
+
+    let mut playlist: Vec<_> = videos
+      .edges
+      .into_iter()
+      .map(|edge| PlaylistItem {
+        path: format!("https://www.twitch.tv/videos/{}", edge.node.id.unwrap().as_str()),
+        name: edge.node.title.unwrap_or("Untitled".into()),
+        description: edge.node.description,
+        artist: Some(user.display_name.clone()),
+        genre: edge.node.game.map(|game| game.display_name),
+        date: Some(edge.node.recorded_at.replace("T", " ").replace("Z", "")),
+        duration: Some(parse_duration(edge.node.duration.as_str())),
+        language: edge.node.language,
+      })
+      .collect();
+
+    if videos.page_info.has_next_page {
+      playlist.push(PlaylistItem {
+        path: format!("https://www.twitch.tv/{}/videos?filter={}&sort={}&cursor={}", channel_name, filter, sort, last_cursor.unwrap()),
+        name: String::from("Load more"),
+        description: None,
+        artist: Some(user.display_name.clone()),
+        genre: None,
+        date: None,
+        duration: None,
+        language: None,
+      })
+    }
+
+    return Ok(playlist);
+  } else if let Some(errors) = response_data.errors {
+    return Err(format!("Twitch error: {}", errors.iter().map(|e| e.message.as_str()).collect::<Vec<&str>>().join(", ")).into());
+  } else {
+    return Err("unknown Twitch error".into());
   }
-  let user = response_data.data.user.unwrap();
-  let last_cursor = user.videos.edges.last().map(|edge| edge.cursor.clone());
-
-  let mut playlist: Vec<_> = user
-    .videos
-    .edges
-    .into_iter()
-    .map(|edge| PlaylistItem {
-      path: format!("https://www.twitch.tv/videos/{}", edge.node.id.unwrap().as_str()),
-      name: edge.node.title,
-      description: edge.node.description,
-      artist: Some(user.display_name.clone()),
-      genre: edge.node.game.map(|game| game.display_name),
-      date: Some(edge.node.recorded_at.replace("T", " ").replace("Z", "")),
-      duration: Some(parse_duration(edge.node.duration.as_str())),
-      language: Some(edge.node.language),
-    })
-    .collect();
-
-  if user.videos.page_info.has_next_page {
-    playlist.push(PlaylistItem {
-      path: format!("https://www.twitch.tv/{}/videos?filter={}&sort={}&cursor={}", channel_name, filter, sort, last_cursor.unwrap()),
-      name: String::from("Load more"),
-      description: None,
-      artist: Some(user.display_name.clone()),
-      genre: None,
-      date: None,
-      duration: None,
-      language: None,
-    })
-  }
-
-  return Ok(playlist);
 }
 
-async fn resolve_video(video_id: String) -> Result<Vec<PlaylistItem>, &'static str> {
+async fn resolve_video(video_id: String) -> Result<Vec<PlaylistItem>, Cow<'static, str>> {
   let q = json!({
     "query": include_str!("twitch/video.gql"),
     "variables": {
@@ -293,46 +308,52 @@ async fn resolve_video(video_id: String) -> Result<Vec<PlaylistItem>, &'static s
 
   if response_status != StatusCode::OK {
     log::error!("bad response: {} - {:?}", response_status, response_text);
-    return Err("received non-200 response from Twitch");
+    return Err("received non-200 response from Twitch".into());
   }
 
   let response_data: types::VideoResponseData = match serde_json::from_str(response_text.as_str()) {
     Ok(v) => v,
     Err(e) => {
       log::error!("error: {:?}, data: {}", e, response_text);
-      return Err("error deserializing data");
+      return Err("error deserializing data".into());
     }
   };
   if cfg!(debug_assertions) {
     log::info!("response_data: {:?}", response_data);
   }
-  if response_data.data.video.is_none() {
-    return Err("video is null");
-  }
-  let video = response_data.data.video.unwrap();
-  if video.playback_access_token.is_none() {
-    return Err("playback_access_token is null");
-  }
-  let token = video.playback_access_token.unwrap();
+  if let Some(data) = response_data.data {
+    if data.video.is_none() {
+      return Err("video is null".into());
+    }
+    let video = data.video.unwrap();
+    if video.playback_access_token.is_none() {
+      return Err("playback_access_token is null".into());
+    }
+    let token = video.playback_access_token.unwrap();
 
-  return Ok(vec![PlaylistItem {
-    path: format!(
-      "https://usher.ttvnw.net/vod/{}.m3u8?allow_source=true&allow_audio_only=true&sig={}&token={}",
-      video_id,
-      urlencoding::encode(token.signature.as_str()),
-      urlencoding::encode(token.value.as_str())
-    ),
-    name: video.title,
-    description: video.description,
-    artist: video.owner.map(|owner| owner.display_name),
-    genre: video.game.map(|game| game.display_name),
-    date: Some(video.recorded_at.replace("T", " ").replace("Z", "")),
-    duration: Some(parse_duration(video.duration.as_str())),
-    language: Some(video.language),
-  }]);
+    return Ok(vec![PlaylistItem {
+      path: format!(
+        "https://usher.ttvnw.net/vod/{}.m3u8?allow_source=true&allow_audio_only=true&sig={}&token={}",
+        video_id,
+        urlencoding::encode(token.signature.as_str()),
+        urlencoding::encode(token.value.as_str())
+      ),
+      name: video.title.unwrap_or("Untitled".into()),
+      description: video.description,
+      artist: video.owner.map(|owner| owner.display_name),
+      genre: video.game.map(|game| game.display_name),
+      date: Some(video.recorded_at.replace("T", " ").replace("Z", "")),
+      duration: Some(parse_duration(video.duration.as_str())),
+      language: video.language,
+    }]);
+  } else if let Some(errors) = response_data.errors {
+    return Err(format!("Twitch error: {}", errors.iter().map(|e| e.message.as_str()).collect::<Vec<&str>>().join(", ")).into());
+  } else {
+    return Err("unknown Twitch error".into());
+  }
 }
 
-async fn resolve_clip(slug: String) -> Result<Vec<PlaylistItem>, &'static str> {
+async fn resolve_clip(slug: String) -> Result<Vec<PlaylistItem>, Cow<'static, str>> {
   let q = json!({
     "query": include_str!("twitch/clip.gql"),
     "variables": {
@@ -351,49 +372,60 @@ async fn resolve_clip(slug: String) -> Result<Vec<PlaylistItem>, &'static str> {
 
   if response_status != StatusCode::OK {
     log::error!("bad response: {} - {:?}", response_status, response_text);
-    return Err("received non-200 response from Twitch");
+    return Err("received non-200 response from Twitch".into());
   }
 
   let response_data: types::ClipResponseData = match serde_json::from_str(response_text.as_str()) {
     Ok(v) => v,
     Err(e) => {
       log::error!("error: {:?}, data: {}", e, response_text);
-      return Err("error deserializing data");
+      return Err("error deserializing data".into());
     }
   };
   if cfg!(debug_assertions) {
     log::info!("response_data: {:?}", response_data);
   }
-  if response_data.data.clip.is_none() {
-    return Err("clip is null");
-  }
-  let clip = response_data.data.clip.unwrap();
-  let token_value: types::ClipTokenValue = match serde_json::from_str(clip.playback_access_token.value.as_str()) {
-    Ok(v) => v,
-    Err(e) => {
-      log::error!("error: {:?}", e);
-      return Err("error deserializing token_value");
+  if let Some(data) = response_data.data {
+    if data.clip.is_none() {
+      return Err("clip is null".into());
     }
-  };
-  if cfg!(debug_assertions) {
-    log::info!("token_value: {:?}", token_value);
-  }
+    let clip = data.clip.unwrap();
+    if clip.playback_access_token.is_none() {
+      return Err("playback_access_token is null".into());
+    }
+    let token = clip.playback_access_token.unwrap();
 
-  return Ok(vec![PlaylistItem {
-    path: format!(
-      "{}?allow_source=true&allow_audio_only=true&sig={}&token={}",
-      token_value.clip_uri,
-      urlencoding::encode(clip.playback_access_token.signature.as_str()),
-      urlencoding::encode(clip.playback_access_token.value.as_str())
-    ),
-    name: clip.title,
-    description: None,
-    artist: Some(clip.broadcaster.display_name),
-    genre: clip.game.map(|game| game.display_name),
-    date: Some(clip.created_at.replace("T", " ").replace("Z", "")),
-    duration: Some(clip.duration_seconds),
-    language: Some(clip.language),
-  }]);
+    let token_value: types::ClipTokenValue = match serde_json::from_str(token.value.as_str()) {
+      Ok(v) => v,
+      Err(e) => {
+        log::error!("error: {:?}", e);
+        return Err("error deserializing token_value".into());
+      }
+    };
+    if cfg!(debug_assertions) {
+      log::info!("token_value: {:?}", token_value);
+    }
+
+    return Ok(vec![PlaylistItem {
+      path: format!(
+        "{}?allow_source=true&allow_audio_only=true&sig={}&token={}",
+        token_value.clip_uri,
+        urlencoding::encode(token.signature.as_str()),
+        urlencoding::encode(token.value.as_str())
+      ),
+      name: clip.title.unwrap_or("Untitled".into()),
+      description: None,
+      artist: Some(clip.broadcaster.display_name),
+      genre: clip.game.map(|game| game.display_name),
+      date: Some(clip.created_at.replace("T", " ").replace("Z", "")),
+      duration: Some(clip.duration_seconds),
+      language: clip.language,
+    }]);
+  } else if let Some(errors) = response_data.errors {
+    return Err(format!("Twitch error: {}", errors.iter().map(|e| e.message.as_str()).collect::<Vec<&str>>().join(", ")).into());
+  } else {
+    return Err("unknown Twitch error".into());
+  }
 }
 
 // all => None, archives => ARCHIVE, highlights => HIGHLIGHT, uploads => UPLOAD

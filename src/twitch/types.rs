@@ -8,10 +8,16 @@ pub enum TwitchMatch {
   Clip(String),
 }
 
+#[derive(Debug, Deserialize)]
+pub(super) struct ErrorData {
+  pub message: String,
+}
+
 // Channel
 #[derive(Debug, Deserialize)]
 pub(super) struct ChannelResponseData {
-  pub data: ChannelData,
+  pub data: Option<ChannelData>,
+  pub errors: Option<Vec<ErrorData>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -29,17 +35,18 @@ pub(super) struct Channel {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct Stream {
-  pub title: String,
+  pub title: Option<String>,
   pub created_at: String,
-  pub language: String,
+  pub language: Option<String>,
   pub game: Option<Game>,
-  pub playback_access_token: PlaybackAccessToken,
+  pub playback_access_token: Option<PlaybackAccessToken>,
 }
 
 // ChannelVideos
 #[derive(Debug, Deserialize)]
 pub(super) struct ChannelVideosResponseData {
-  pub data: ChannelVideosData,
+  pub data: Option<ChannelVideosData>,
+  pub errors: Option<Vec<ErrorData>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -50,7 +57,8 @@ pub(super) struct ChannelVideosData {
 // Video
 #[derive(Debug, Deserialize)]
 pub(super) struct VideoResponseData {
-  pub data: VideoData,
+  pub data: Option<VideoData>,
+  pub errors: Option<Vec<ErrorData>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -62,20 +70,21 @@ pub(super) struct VideoData {
 #[serde(rename_all = "camelCase")]
 pub(super) struct Video {
   pub id: Option<String>,
-  pub title: String,
+  pub title: Option<String>,
   pub description: Option<String>,
   pub owner: Option<User>,
   pub game: Option<Game>,
   pub recorded_at: String,
   pub duration: String,
-  pub language: String,
+  pub language: Option<String>,
   pub playback_access_token: Option<PlaybackAccessToken>,
 }
 
 // Clip
 #[derive(Debug, Deserialize)]
 pub(super) struct ClipResponseData {
-  pub data: ClipData,
+  pub data: Option<ClipData>,
+  pub errors: Option<Vec<ErrorData>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -86,13 +95,13 @@ pub(super) struct ClipData {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct Clip {
-  pub title: String,
+  pub title: Option<String>,
   pub broadcaster: User,
   pub game: Option<Game>,
   pub created_at: String,
   pub duration_seconds: usize,
-  pub language: String,
-  pub playback_access_token: PlaybackAccessToken,
+  pub language: Option<String>,
+  pub playback_access_token: Option<PlaybackAccessToken>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -117,7 +126,7 @@ pub(super) struct User {
 #[serde(rename_all = "camelCase")]
 pub(super) struct UserWithVideos {
   pub display_name: String,
-  pub videos: VideoConnection,
+  pub videos: Option<VideoConnection>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -130,7 +139,7 @@ pub(super) struct VideoConnection {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct VideoEdge {
-  pub cursor: String,
+  pub cursor: Option<String>,
   pub node: Video,
 }
 
