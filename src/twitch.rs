@@ -6,6 +6,7 @@ use std::{borrow::Cow, result::Result, sync::OnceLock};
 use urlencoding;
 
 use crate::PlaylistItem;
+use crate::utils;
 
 pub mod types;
 
@@ -64,6 +65,16 @@ fn clip_url_patterns() -> &'static [Regex] {
   })
 }
 
+fn game_streams_url_patterns() -> &'static [Regex] {
+  static GAME_STREAMS_URL_PATTERNS: OnceLock<[Regex; 1]> = OnceLock::new();
+  GAME_STREAMS_URL_PATTERNS.get_or_init(|| {
+    [
+      // https://www.twitch.tv/directory/category/diablo-ii-resurrected?tl=hardcore&sort=VIEWER_COUNT
+      Regex::new(r"^https?://www\.twitch\.tv/directory/category/(?P<slug>[^/?#]+)(?:[?&#](?:tl=(?P<tl>[^&#]+)|sort=(?P<sort>[^&#]+)|cursor=(?P<cursor>[^&#]+)))*").unwrap(),
+    ]
+  })
+}
+
 pub fn probe(url: &str) -> Option<types::TwitchMatch> {
   if crate::CONFIG.twitch_client_id.is_none() {
     return None;
@@ -88,6 +99,19 @@ pub fn probe(url: &str) -> Option<types::TwitchMatch> {
       && let Some(m) = captures.get(1)
     {
       return Some(types::TwitchMatch::Video(m.as_str().to_string()));
+    }
+  }
+
+  for re in game_streams_url_patterns().iter() {
+    if cfg!(debug_assertions) {
+      log::info!("re: {:?}", re);
+    }
+    if let Some(captures) = re.captures(url) {
+      let slug = captures.name("slug").unwrap().as_str().to_string();
+      let tl = captures.name("tl").map(|m| m.as_str().to_string());
+      let sort = captures.name("sort").map(|m| m.as_str().to_string()).unwrap_or("VIEWER_COUNT".to_string());
+      let cursor = captures.name("cursor").map(|m| m.as_str().to_string());
+      return Some(types::TwitchMatch::GameStreams(slug, tl, sort, cursor));
     }
   }
 
@@ -131,11 +155,13 @@ pub async fn resolve(m: types::TwitchMatch) -> Result<Vec<PlaylistItem>, Cow<'st
     types::TwitchMatch::ChannelVideos(channel_name, filter, sort, cursor) => resolve_channel_videos(channel_name, filter, sort, cursor).await,
     types::TwitchMatch::Video(video_id) => resolve_video(video_id).await,
     types::TwitchMatch::Clip(slug) => resolve_clip(slug).await,
+    types::TwitchMatch::GameStreams(game_slug, tl, sort, cursor) => resolve_game_streams(game_slug, tl, sort, cursor).await,
   }
 }
 
 async fn resolve_channel(channel_name: String) -> Result<Vec<PlaylistItem>, Cow<'static, str>> {
   // https://www.twitch.tv/directory/game/Perfect%20Dark
+  // https://www.twitch.tv/directory/category/perfect-dark-2000
   // https://www.twitch.tv/recaps/annual
   if channel_name == "directory" || channel_name == "recaps" {
     return Err("unsupported channel name".into());
@@ -268,10 +294,12 @@ async fn resolve_channel_videos(channel_name: String, filter: String, sort: Stri
       })
       .collect();
 
-    if videos.page_info.has_next_page {
+    if videos.page_info.has_next_page
+      && let Some(last_cursor) = last_cursor
+    {
       playlist.push(PlaylistItem {
-        path: format!("https://www.twitch.tv/{}/videos?filter={}&sort={}&cursor={}", channel_name, filter, sort, last_cursor.unwrap()),
-        name: String::from("Load more"),
+        path: format!("https://www.twitch.tv/{}/videos?filter={}&sort={}&cursor={}", channel_name, filter, sort, last_cursor),
+        name: "Load more".into(),
         description: None,
         artist: Some(user.display_name.clone()),
         genre: None,
@@ -421,6 +449,95 @@ async fn resolve_clip(slug: String) -> Result<Vec<PlaylistItem>, Cow<'static, st
       duration: Some(clip.duration_seconds),
       language: clip.language,
     }]);
+  } else if let Some(errors) = response_data.errors {
+    return Err(format!("Twitch error: {}", errors.iter().map(|e| e.message.as_str()).collect::<Vec<&str>>().join(", ")).into());
+  } else {
+    return Err("unknown Twitch error".into());
+  }
+}
+
+async fn resolve_game_streams(game_slug: String, tl: Option<String>, sort: String, cursor: Option<String>) -> Result<Vec<PlaylistItem>, Cow<'static, str>> {
+  let q = json!({
+    "query": include_str!("twitch/game_streams.gql"),
+    "variables": {
+      "slug": game_slug,
+      "limit": 30,
+      "options": {
+        "sort": sort,
+        "freeformTags": tl,
+      },
+      "cursor": cursor,
+    },
+  });
+  let request_data = serde_json::to_string(&q).unwrap();
+
+  let client = reqwest::Client::builder().build().expect("build reqwest client");
+  let client_id = crate::CONFIG.twitch_client_id.as_ref().unwrap().as_str();
+  let response = client.post(GRAPHQL_URL).header("Client-ID", client_id).body(request_data).send().await.expect("send graphql request");
+  let response_status = response.status();
+  let response_text = response.text().await.expect("read response data");
+
+  if response_status != StatusCode::OK {
+    log::error!("bad response: {} - {:?}", response_status, response_text);
+    return Err("received non-200 response from Twitch".into());
+  }
+
+  let response_data: types::GameStreamsResponseData = match serde_json::from_str(response_text.as_str()) {
+    Ok(v) => v,
+    Err(e) => {
+      log::error!("error: {:?}, data: {}", e, response_text);
+      return Err("error deserializing data".into());
+    }
+  };
+  if cfg!(debug_assertions) {
+    log::info!("response_data: {:?}", response_data);
+  }
+  if let Some(data) = response_data.data
+    && let Some(game) = data.game
+    && let Some(streams) = game.streams
+  {
+    let last_cursor = streams.edges.last().map(|edge| edge.cursor.clone()).flatten();
+
+    let mut playlist: Vec<_> = streams
+      .edges
+      .into_iter()
+      .map(|edge| PlaylistItem {
+        path: format!(
+          "https://www.twitch.tv/{}",
+          edge.node.broadcaster.as_ref().map(|user| user.login.clone()).flatten().unwrap_or("error".into())
+        ),
+        name: edge.node.title.unwrap_or("Untitled".into()),
+        description: edge.node.viewers_count.map(|viewers_count| format!("{} viewer{}", viewers_count, utils::pluralize(viewers_count))),
+        artist: edge.node.broadcaster.map(|user| user.display_name.clone()),
+        genre: Some(game.display_name.clone()),
+        date: Some(edge.node.created_at.replace("T", " ").replace("Z", "")),
+        duration: None,
+        language: edge.node.language,
+      })
+      .collect();
+
+    if streams.page_info.has_next_page
+      && let Some(last_cursor) = last_cursor
+    {
+      playlist.push(PlaylistItem {
+        path: format!(
+          "https://www.twitch.tv/directory/category/{}?{}sort={}&cursor={}",
+          game_slug,
+          tl.map(|tl| format!("tl={}&", tl)).unwrap_or("".to_string()),
+          sort,
+          last_cursor
+        ),
+        name: "Load more".into(),
+        description: None,
+        artist: None,
+        genre: Some(game.display_name),
+        date: None,
+        duration: None,
+        language: None,
+      })
+    }
+
+    return Ok(playlist);
   } else if let Some(errors) = response_data.errors {
     return Err(format!("Twitch error: {}", errors.iter().map(|e| e.message.as_str()).collect::<Vec<&str>>().join(", ")).into());
   } else {

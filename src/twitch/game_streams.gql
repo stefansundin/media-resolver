@@ -1,0 +1,32 @@
+query(
+  $slug: String!
+  $limit: Int
+  $cursor: Cursor
+  $options: GameStreamOptions
+) {
+  game(slug: $slug) {
+    displayName
+    streams(first: $limit, after: $cursor, options: $options) {
+      edges {
+        cursor
+        node {
+          id
+          title
+          language
+          viewersCount
+          createdAt
+          broadcaster {
+            login
+            displayName
+          }
+          freeformTags {
+            name
+          }
+        }
+      }
+      pageInfo {
+        hasNextPage
+      }
+    }
+  }
+}

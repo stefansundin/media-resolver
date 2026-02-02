@@ -1,4 +1,5 @@
 pub mod twitch;
+pub mod utils;
 
 use actix_web::{App, HttpResponse, HttpServer, get, middleware, web};
 use config::Config;
